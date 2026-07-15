@@ -10,7 +10,7 @@ gradle/
 # Java
 *.class
 out/
-
+src/main/java/io/github/youhong/demo
 
 # Log file
 *.log
