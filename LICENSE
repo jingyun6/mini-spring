@@ -1,0 +1,20 @@
+# Mini Spring
+
+A lightweight Spring Framework implementation for learning purposes.
+
+## Features
+
+- IoC Container
+- Dependency Injection
+- Bean Lifecycle
+- Annotation Support
+- AOP (Coming Soon)
+
+## Tech Stack
+
+- Java 21
+- Gradle
+
+## License
+
+Apache License 2.0
