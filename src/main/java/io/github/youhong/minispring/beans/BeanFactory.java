@@ -1,5 +1,9 @@
 package io.github.youhong.minispring.beans;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * <p>
  * [一句话描述该类的核心职责]
@@ -13,4 +17,15 @@ package io.github.youhong.minispring.beans;
  * @since 2026/7/16 08:25
  */
 public class BeanFactory {
+    private final Map<String, BeanDefinition> beanDefinitionMap;
+    private final Map<String, Object> singletonBeans = new ConcurrentHashMap<>();
+
+    public Object getBean(String name) {
+
+        return null;
+    }
+
+    public BeanFactory(Map<String, BeanDefinition> beanDefinitionMap) {
+        this.beanDefinitionMap = beanDefinitionMap;
+    }
 }

@@ -2,10 +2,12 @@ package io.github.youhong.minispring.beans;
 
 /**
  * <p>
- * [一句话描述该类的核心职责]
+ * Bean 定义元数据模型，描述一个 Bean 的类型、名称及作用域信息。
  * </p>
  * <p>
- * [详细描述：介绍应用场景、注意事项、核心算法或与其他类的协作关系等（可选）]
+ * 该类是 mini-spring IoC 容器的基础数据载体，每个被 {@code @Component} 标注的类
+ * 在扫描阶段都会封装为一个 {@code BeanDefinition} 实例，由 {@link BeanDefinitionRegistry} 统一管理。
+ * 默认作用域为单例（singleton=true），后续可扩展支持原型（prototype）等其他作用域。
  * </p>
  *
  * @author YouHong5286
@@ -18,9 +20,6 @@ public class BeanDefinition {
     private boolean singleton = true;
 
     public BeanDefinition() {
-        this.beanClass = beanClass;
-        this.beanName = beanName;
-        this.singleton = singleton;
     }
 
     public Class<?> getBeanClass() {
