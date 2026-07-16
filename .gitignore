@@ -10,7 +10,7 @@ gradle/
 # Java
 *.class
 out/
-
+src/main/java/io/github/youhong/minispring/demo/*
 
 # Log file
 *.log
