@@ -15,10 +15,19 @@ package io.github.youhong.minispring.beans;
  * @since 2026/7/15 17:33
  */
 public class BeanDefinition {
+
+    /** Bean 对应的 Java 类，容器通过反射调用其构造器创建实例 */
     private Class<?> beanClass;
+
+    /** Bean 的唯一标识名称，默认由类名首字母小写生成 */
     private String beanName;
+
+    /** 是否为单例，默认为 {@code true}；后续可扩展支持原型（prototype）等其他作用域 */
     private boolean singleton = true;
 
+    /**
+     * 创建空的 Bean 定义实例，所有属性需通过 setter 后续设置。
+     */
     public BeanDefinition() {
     }
 
