@@ -1,5 +1,7 @@
 package io.github.youhong.minispring.exception;
 
+import java.io.Serial;
+
 /**
  * 请求的 BeanDefinition 不存在时抛出的异常。
  *
@@ -10,8 +12,9 @@ package io.github.youhong.minispring.exception;
  * @since 2026-07-16
  * @version 1.0.0
  */
-public class BeanDefinitionNotFoundException extends RuntimeException {
+public class BeanDefinitionNotFoundException extends BeansException {
 
+    @Serial
     private static final long serialVersionUID = -2442167059944191609L;
 
     /** 未找到对应 BeanDefinition 的 Bean 名称。 */

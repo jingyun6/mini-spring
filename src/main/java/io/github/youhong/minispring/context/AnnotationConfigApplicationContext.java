@@ -2,6 +2,7 @@ package io.github.youhong.minispring.context;
 
 import io.github.youhong.minispring.beans.BeanDefinition;
 import io.github.youhong.minispring.beans.DefaultListableBeanFactory;
+import io.github.youhong.minispring.exception.BeansException;
 import io.github.youhong.minispring.scanner.ClassPathScanner;
 
 import java.beans.Introspector;
@@ -54,12 +55,9 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
      * <p>传入基础包路径后立即执行 {@link #refresh(String)} 完成扫描与预实例化。
      *
      * @param basePackage 待扫描的基础包路径，如 {@code "com.example"}
-     * @throws InvocationTargetException 如果 Bean 构造器内部抛出异常
-     * @throws NoSuchMethodException     如果 Bean 类缺少无参构造器
-     * @throws InstantiationException    如果 Bean 类是抽象类或接口
-     * @throws IllegalAccessException    如果无参构造器不可访问
+     * @throws BeansException 如果 BeanDefinition 查找、Bean 创建或依赖注入失败
      */
-    public AnnotationConfigApplicationContext(String basePackage) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public AnnotationConfigApplicationContext(String basePackage) {
         refresh(basePackage);
     }
 
@@ -72,7 +70,7 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
      *
      * @param basePackage 待扫描的基础包路径
      */
-    private void refresh(String basePackage) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    private void refresh(String basePackage) {
         scanBeanDefinitions(basePackage);
         preInstantiateSingletons();
     }
@@ -107,13 +105,8 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
      * 可以复用单例缓存查询、BeanDefinition 查找和实例注册流程。</p>
      *
      * <p>当前尚未实现懒加载，因此所有单例都会在 ApplicationContext 启动时创建。</p>
-     *
-     * @throws NoSuchMethodException     如果 Bean 类不存在无参构造器
-     * @throws InstantiationException    如果 Bean 类不能被实例化
-     * @throws IllegalAccessException    如果无参构造器不可访问
-     * @throws InvocationTargetException 如果构造器内部抛出异常
      */
-    private void preInstantiateSingletons() throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    private void preInstantiateSingletons() {
         String[] beanDefinitionNames = beanFactory.getBeanDefinitionNames();
 
         for (String beanDefinitionName : beanDefinitionNames) {
@@ -126,17 +119,21 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
 
     /**
      * 按名称获取 Bean 实例（委托给底层 BeanFactory）。
+     *
+     * @throws BeansException 如果 Bean 查找或创建失败
      */
     @Override
-    public Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public Object getBean(String beanName) {
         return beanFactory.getBean(beanName);
     }
 
     /**
      * 按类型获取 Bean 实例（委托给底层 BeanFactory）。
+     *
+     * @throws BeansException 如果 Bean 解析或创建失败
      */
     @Override
-    public <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public <T> T getBean(Class<T> requiredType) {
         return beanFactory.getBean(requiredType);
     }
 }

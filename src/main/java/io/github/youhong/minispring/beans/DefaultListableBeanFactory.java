@@ -1,8 +1,12 @@
 package io.github.youhong.minispring.beans;
 
+import io.github.youhong.minispring.annotation.Autowired;
+import io.github.youhong.minispring.exception.BeanCreationException;
 import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
+import io.github.youhong.minispring.exception.BeansException;
 import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p><b>Bean 创建流程（{@link #getBean(String)}）：</b>
  * <ol>
  *     <li>从 {@code beanDefinitionMap} 查找对应的 {@link BeanDefinition}</li>
- *     <li>调用 {@link #createBean(BeanDefinition)} 通过反射实例化</li>
+ *     <li>调用 {@link #createBean(BeanDefinition)} 完成实例化和字段依赖注入</li>
  *     <li>若为单例，将实例存入 {@code singletonObjects} 缓存</li>
  *     <li>返回可用的 Bean 实例</li>
  * </ol>
@@ -92,8 +96,8 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      *     <li>将 Bean 名称追加到 {@link #beanDefinitionNames} 数组</li>
      * </ol>
      *
-     * <p>若已存在同名的 BeanDefinition，新的定义将覆盖旧的（静默覆盖策略）。
-     * 这与 Spring 的行为一致：允许运行时重新注册 Bean 定义（如热部署场景）。
+     * <p>当前实现未校验重复名称：同名定义会覆盖 Map 中的旧值，同时名称数组仍会追加一次。
+     * 这是学习版本的简化行为，调用方不应依赖重复注册；后续应明确选择禁止覆盖或受控覆盖策略。
      *
      * @param beanName       Bean 的唯一标识名称，不能为 {@code null}
      * @param beanDefinition Bean 定义元数据，不能为 {@code null}
@@ -160,13 +164,10 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @param beanName Bean 的唯一标识名称，不能为 {@code null}
      * @return 与指定名称关联的 Bean 实例
      * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
-     * @throws NoSuchMethodException           如果 Bean 类不存在无参构造器
-     * @throws InstantiationException          如果 Bean 类是抽象类或接口
-     * @throws IllegalAccessException          如果无参构造器不可访问
-     * @throws InvocationTargetException       如果构造器内部抛出异常
+     * @throws BeanCreationException           如果 Bean 实例化或依赖注入过程中发生反射异常
      */
     @Override
-    public Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public Object getBean(String beanName) {
         // 1. 单例缓存查询——若已创建则直接返回，避免重复创建
         Object singleton = getSingleton(beanName);
         if (singleton != null) {
@@ -201,14 +202,11 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
-     * @throws RuntimeException          如果不存在指定类型的 Bean
-     * @throws NoSuchMethodException     如果匹配 Bean 的类不存在无参构造器
-     * @throws InstantiationException    如果匹配 Bean 的类是抽象类或接口
-     * @throws IllegalAccessException    如果无参构造器不可访问
-     * @throws InvocationTargetException 如果构造器内部抛出异常
+     * @throws BeansException 如果不存在指定类型的 Bean，或匹配 Bean 的创建过程失败
      */
     @Override
-    public <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    @SuppressWarnings("unchecked")
+    public <T> T getBean(Class<T> requiredType) {
         // 遍历所有 BeanDefinition，按类型匹配
         for (BeanDefinition beanDefinition : beanDefinitionMap.values()) {
             if (requiredType.isAssignableFrom(beanDefinition.getBeanClass())) {
@@ -216,7 +214,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
             }
         }
 
-        throw new RuntimeException("No bean of type " + requiredType.getName() + " found");
+        throw new BeansException("No bean of type " + requiredType.getName() + " found");
     }
 
     /**
@@ -230,14 +228,86 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * </ul>
      *
      * @param beanDefinition Bean 定义元数据，包含待实例化的类信息
-     * @return 通过无参构造器创建的 Bean 实例
-     * @throws NoSuchMethodException     如果 Bean 类不存在无参构造器
-     * @throws InstantiationException    如果 Bean 类是抽象类或接口
-     * @throws IllegalAccessException    如果无参构造器不可访问
-     * @throws InvocationTargetException 如果构造器内部抛出异常
+     * @return 已完成实例化和字段填充的 Bean 实例
+     * @throws BeanCreationException 如果实例化或依赖注入过程中发生反射异常
      */
-    private Object createBean(BeanDefinition beanDefinition) throws NoSuchMethodException, InstantiationException, IllegalAccessException, InvocationTargetException {
-        // 获取无参构造器并创建实例
+    private Object createBean(BeanDefinition beanDefinition) {
+
+        Object bean;
+        try {
+            // 获取无参构造器并创建实例
+            bean = instantiateBean(beanDefinition);
+            populateBean(beanDefinition, bean);
+        } catch (ReflectiveOperationException exception) {
+            throw new BeanCreationException(
+                    beanDefinition.getBeanName(),
+                    "Bean instantiation or dependency injection failed",
+                    exception
+            );
+        }
+
+        return bean;
+    }
+
+    /**
+     * 对已创建的 Bean 实例进行属性填充（依赖注入）。
+     *
+     * <p>扫描 Bean 类中所有声明的字段，对标注了 {@link Autowired @Autowired} 的字段
+     * 递归调用 {@link #getBean(Class)} 获取依赖实例，并通过反射完成字段注入。
+     *
+     * <p><b>当前限制：</b>
+     * <ul>
+     *     <li>仅支持字段注入，不支持构造器注入和 setter 注入</li>
+     *     <li>不处理父类中声明的字段（仅扫描当前类的 {@code declaredFields}）</li>
+     *     <li>不支持 {@code @Autowired(required=false)} 可选注入语义</li>
+     *     <li>不检测循环依赖，若存在循环引用将导致 {@link StackOverflowError}</li>
+     * </ul>
+     *
+     * @param beanDefinition Bean 定义元数据，用于获取 Bean 的 Class 信息
+     * @param bean           已实例化但尚未填充属性的 Bean 对象
+     * @throws IllegalAccessException 如果目标字段无法通过反射写入
+     */
+    private void populateBean(
+            BeanDefinition beanDefinition,
+            Object bean)
+            throws IllegalAccessException {
+
+        Class<?> beanClass = beanDefinition.getBeanClass();
+        // 获取当前类声明的所有字段（不包含父类字段）
+        Field[] fields = beanClass.getDeclaredFields();
+
+        for (Field field : fields) {
+            // 仅处理标注了 @Autowired 的字段
+            if (!field.isAnnotationPresent(Autowired.class)) {
+                continue;
+            }
+
+            // 按字段类型从容器获取依赖 Bean（递归触发依赖的创建）
+            Object dependency = getBean(field.getType());
+
+            // 突破 private 访问限制，通过反射注入依赖
+            field.setAccessible(true);
+            field.set(bean, dependency);
+        }
+    }
+
+    /**
+     * 通过反射调用无参构造器创建 Bean 实例。
+     *
+     * <p>该方法是 Bean 生命周期的第一步（实例化）
+     * 获取无参构造器并调用 {@link java.lang.reflect.Constructor#newInstance(Object...)} 创建对象。
+     *
+     * @param beanDefinition Bean 定义元数据，提供待实例化的目标类
+     * @return 通过无参构造器创建的 Bean 实例
+     * @throws NoSuchMethodException     如果目标类不存在无参构造器
+     * @throws InstantiationException    如果目标类是抽象类、接口、数组类型、基本类型或 {@code void}
+     * @throws IllegalAccessException    如果无参构造器不可访问（例如为 {@code private}）
+     * @throws InvocationTargetException 如果构造器内部抛出了异常
+     */
+    private static Object instantiateBean(BeanDefinition beanDefinition) throws ReflectiveOperationException {
+        // 1. 获取目标类的 Class 对象
+        // 2. 获取该类声明的无参构造器（包含 private）
+        // 3. 通过构造器反射创建实例
         return beanDefinition.getBeanClass()
                 .getDeclaredConstructor()
                 .newInstance();
@@ -249,7 +319,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>由于 Java 数组长度固定，需要创建新数组并复制原内容。
      * 该工具方法用于维护 {@link #beanDefinitionNames} 数组的增长。
      *
-     * @param array 原数组，可以为空数组但不能为 {@code null}
+     * @param array   原数组，可以为空数组但不能为 {@code null}
      * @param element 待追加的元素
      * @return 包含原元素和新元素的新数组
      */
