@@ -26,14 +26,15 @@ mini-spring 是一个精简版的 Spring 学习框架，旨在通过手写核心
 
 - **语言**: Java 21
 - **构建工具**: Gradle 8.13 (Kotlin DSL)
-- **外部依赖**: 无（纯 JDK 实现，不依赖任何第三方库）
+- **运行时依赖**: 无（核心容器使用纯 JDK 实现）
+- **测试框架**: JUnit 5
 
 ## 项目架构
 
 ```
 io.github.youhong.minispring
 ├── annotation          # 自定义注解
-│   ├── Autowired       # 自动装配（已定义，DI 逻辑待实现）
+│   ├── Autowired       # 按字段类型自动装配
 │   └── Component       # 组件标记（用于类路径扫描发现）
 ├── beans               # Bean 定义与工厂核心
 │   ├── BeanFactory             # IoC 容器根接口（getBean）
@@ -49,13 +50,15 @@ io.github.youhong.minispring
 ├── scanner             # 类路径扫描
 │   └── ClassPathScanner  # @Component 类扫描器
 ├── exception           # 异常体系
+│   ├── BeansException                   # 容器异常根类
+│   ├── BeanCreationException            # Bean 创建失败异常
 │   └── BeanDefinitionNotFoundException  # Bean 定义未找到异常
 ├── utils               # 工具类
 │   ├── Assert       # 参数断言（fail-fast）
 │   └── StringUtils  # 字符串工具（首字母小写）
-└── demo               # 演示用例
-    ├── Test         # 集成测试入口
-    └── UserService  # 演示用 @Component Bean
+└── testfixture         # 测试专用组件（位于 src/test）
+    ├── OrderService # @Autowired 注入目标
+    └── UserService  # 被注入的 @Component Bean
 ```
 
 ### 类层次结构
@@ -75,15 +78,26 @@ io.github.youhong.minispring
 **核心设计：** `DefaultListableBeanFactory` 是整个框架的中枢类，同时承担三项职责：
 1. **Bean 定义管理** — 实现 `BeanDefinitionRegistry`，维护 beanName → BeanDefinition 映射
 2. **Bean 实例获取** — 实现 `BeanFactory`，按名称/类型获取已装配的 Bean
-3. **单例缓存** — 继承 `DefaultSingletonBeanRegistry`，复用线程安全的单例存储
+3. **单例缓存** — 继承 `DefaultSingletonBeanRegistry`，复用单例存储
+
+容器启动阶段遵循“元数据注册与对象创建分离”的原则：
+
+```text
+扫描 @Component
+→ 注册全部 BeanDefinition
+→ 预实例化单例 Bean
+→ 实例化对象
+→ 填充 @Autowired 字段
+→ 注册到单例缓存
+```
 
 ## 已实现功能
 
 ### ✅ 1. Bean 定义注册与管理
 - `BeanDefinition` — Bean 元数据模型（class、beanName、singleton）
-- `BeanDefinitionRegistry` — 注册/查找/存在性检查
-- `DefaultListableBeanFactory` — 使用 `ConcurrentHashMap` 存储，线程安全
-- 重复注册检测，快速失败
+- `BeanDefinitionRegistry` — 注册、查找、存在性检查和名称遍历
+- `DefaultListableBeanFactory` — 使用 `ConcurrentHashMap` 存储 BeanDefinition
+- BeanDefinition 注册与 Bean 实例化分阶段执行，不依赖类路径扫描顺序
 
 ### ✅ 2. 单例管理
 - `SingletonBeanRegistry` — 单例注册、获取、存在性检查
@@ -98,22 +112,32 @@ io.github.youhong.minispring
 
 ### ✅ 4. 注解支持
 - `@Component` — 标记类为 IoC 管理的 Bean
-- `@Autowired` — 字段级自动装配（注解已定义，DI 逻辑待实现）
+- `@Autowired` — 按字段类型解析并注入依赖 Bean
 
 ### ✅ 5. 注解驱动启动
 - `AnnotationConfigApplicationContext` — 传入包路径即可启动容器
-- 自动扫描 → 注册 BeanDefinition → 预实例化单例
+- 自动扫描 → 注册全部 BeanDefinition → 预实例化单例
 
 ### ✅ 6. Bean 获取
 - `getBean(String)` — 按名称获取（优先走单例缓存）
 - `getBean(Class<T>)` — 按类型获取（使用 `isAssignableFrom` 支持子类/接口匹配）
 
-### ✅ 7. 异常体系
-- `BeanDefinitionNotFoundException` — Bean 定义不存在时抛出
-- `IllegalArgumentException` — 参数校验失败
-- `IllegalStateException` — Bean 定义重复注册
+### ✅ 7. 字段依赖注入
+- Bean 创建流程拆分为实例化与属性填充阶段
+- 扫描当前类声明的 `@Autowired` 字段
+- 统一通过 `BeanFactory#getBean(Class)` 获取依赖，复用单例缓存与创建流程
 
-### ✅ 8. 工具类
+### ✅ 8. 异常体系
+- `BeansException` — mini-spring 容器异常根类
+- `BeanCreationException` — 封装实例化和属性填充阶段的反射异常，并保留原始 cause
+- `BeanDefinitionNotFoundException` — BeanDefinition 不存在时抛出
+- 公开 BeanFactory API 不再泄露反射受检异常
+
+### ✅ 9. 自动化测试
+- 基于 JUnit 5 验证组件扫描、按类型获取、字段注入和单例复用
+- 测试组件存放在 `src/test`，不进入框架运行时产物
+
+### ✅ 10. 工具类
 - `Assert` — 运行时参数断言
 - `StringUtils` — 字符串首字母小写（用于生成默认 Bean 名称）
 
@@ -123,26 +147,33 @@ io.github.youhong.minispring
 // 1. 定义 Bean
 @Component
 public class UserService {
-    public void load() {
-        System.out.println("UserService loaded!");
-    }
+}
+
+@Component
+public class OrderService {
+    @Autowired
+    private UserService userService;
 }
 
 // 2. 启动容器
 ApplicationContext ctx = new AnnotationConfigApplicationContext("com.example");
 
-// 3. 获取 Bean
-UserService userService = ctx.getBean(UserService.class);
-userService.load();
+// 3. 获取已经完成依赖注入的 Bean
+OrderService orderService = ctx.getBean(OrderService.class);
 ```
 
-运行 `io.github.youhong.minispring.demo.Test.main()` 可查看集成测试结果。
+运行测试：
+
+```powershell
+gradle test
+```
 
 ## 待实现功能
 
-### 🔲 依赖注入（DI）
-- 处理 `@Autowired` 注解，自动注入依赖的 Bean
-- 支持字段注入（Field Injection）
+### 🔲 依赖注入增强
+- 支持父类继承字段注入
+- 处理同类型多个候选 Bean，并支持限定符或优先级
+- 支持构造器注入和方法注入
 - 循环依赖检测与处理
 
 ### 🔲 Bean 生命周期
@@ -170,10 +201,9 @@ userService.load();
 - 支持 `@ComponentScan` 注解配置扫描规则
 
 ### 🔲 其他
-- 构造器注入
 - `@Value` 属性占位符解析
 - `@Configuration` + `@Bean` Java Config 支持
-- 单元测试覆盖
+- 补充异常路径和边界场景测试
 
 ## 开发日志
 
@@ -183,6 +213,9 @@ userService.load();
 | 2026-07-16 | 实现 BeanDefinition 注册管理、单例缓存、ApplicationContext 启动流程 |
 | 2026-07-16 | 修复扫描器递归时的包名拼接 bug、getBean 重复注册单例 bug |
 | 2026-07-16 | 全项目补全 JavaDoc 注释，更新 README |
+| 2026-07-20 | 拆分 BeanDefinition 注册与单例预实例化阶段，避免 Bean 创建依赖扫描顺序 |
+| 2026-07-20 | 实现基于类型的 `@Autowired` 字段注入，并增加 JUnit 5 集成测试 |
+| 2026-07-20 | 建立 `BeansException` 异常体系，统一封装 Bean 创建过程中的反射异常 |
 
 ---
 
