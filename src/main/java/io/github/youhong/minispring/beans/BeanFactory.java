@@ -1,5 +1,9 @@
 package io.github.youhong.minispring.beans;
 
+import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
+import io.github.youhong.minispring.exception.BeanCreationException;
+import io.github.youhong.minispring.exception.BeansException;
+
 import java.lang.reflect.InvocationTargetException;
 
 /**
@@ -46,9 +50,10 @@ public interface BeanFactory {
      *
      * @param beanName Bean 的唯一标识名称，不能为 {@code null}
      * @return 与指定名称关联的 Bean 实例
-     * @throws NoSuchBeanDefinitionException 如果容器中不存在指定名称的 Bean 定义
+     * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
+     * @throws BeanCreationException           如果 Bean 实例化或依赖注入失败
      */
-    Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
+    Object getBean(String beanName);
 
     /**
      * 根据 Bean 类型从容器中获取 Bean 实例。
@@ -56,14 +61,13 @@ public interface BeanFactory {
      * <p>使用泛型参数 {@code <T>} 进行类型安全的 Bean 获取，调用方无需
      * 手动进行类型转换。容器会自动推断目标类型并返回匹配的实例。
      *
-     * <p>如果容器中存在多个匹配类型的 Bean，实现类应根据优先级规则
-     * （如 {@code @Primary} 注解）选择合适的实例。
+     * <p>当前接口尚未定义多候选 Bean 的选择规则，后续可扩展 {@code @Primary}
+     * 或限定符机制。具体实现应明确当前版本在多候选场景下的行为。
      *
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
-     * @throws NoSuchBeanDefinitionException 如果容器中不存在指定类型的 Bean 定义
-     * @throws NoUniqueBeanDefinitionException 如果容器中存在多个匹配类型的 Bean
+     * @throws BeansException 如果依赖解析失败，或匹配 Bean 的创建过程失败
      */
-    <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
+    <T> T getBean(Class<T> requiredType);
 }

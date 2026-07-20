@@ -1,108 +1,118 @@
 package io.github.youhong.minispring.beans;
 
+import io.github.youhong.minispring.annotation.Autowired;
+import io.github.youhong.minispring.exception.BeanCreationException;
 import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
+import io.github.youhong.minispring.exception.BeansException;
 import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
-import io.github.youhong.minispring.utils.Assert;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * mini-spring 的核心 IoC 容器实现——同时提供 Bean 定义注册与 Bean 实例获取能力。
+ * {@link BeanFactory} 接口的默认实现——mini-spring IoC 容器的核心引擎。
  *
- * <p>该类是整个框架的中枢，将 <b>Bean 定义管理</b> 与 <b>Bean 实例化</b> 两大职责集成于一体：
+ * <p>该类是整个 mini-spring 框架的中枢，同时承担两大职责：
+ * <ul>
+ *     <li><b>Bean 定义仓库</b>（通过 {@link BeanDefinitionRegistry}）：管理所有 {@link BeanDefinition} 的注册与查询</li>
+ *     <li><b>Bean 工厂</b>（通过 {@link BeanFactory}）：根据定义创建、缓存并返回 Bean 实例</li>
+ * </ul>
  *
- * <p><b>类层次结构：</b>
- * <pre>
- * BeanFactory                      SingletonBeanRegistry
- *   ↑ (getBean)                      ↑ (单例缓存)
- *   |                                |
- *   |         DefaultSingletonBeanRegistry
- *   |           ↑ (继承)
- *   |           |
- * DefaultListableBeanFactory  ← 同时实现 BeanFactory + BeanDefinitionRegistry
- * </pre>
+ * <p><b>继承体系：</b>
+ * <pre>{@code
+ * DefaultSingletonBeanRegistry   ← 提供单例缓存（一级缓存 singletonObjects）
+ *         ↑
+ * DefaultListableBeanFactory     ← 当前类，整合定义仓库与工厂能力
+ *         ↑ 实现
+ * BeanFactory + BeanDefinitionRegistry
+ * }</pre>
  *
- * <p><b>核心流程——getBean(String)：</b>
+ * <p><b>核心数据结构：</b>
+ * <ul>
+ *     <li>{@code beanDefinitionMap} — Bean 名称到定义的映射，作为定义仓库的主存储</li>
+ *     <li>{@code singletonObjects}（继承）— Bean 名称到单例实例的缓存</li>
+ * </ul>
+ *
+ * <p><b>Bean 创建流程（{@link #getBean(String)}）：</b>
  * <ol>
- *     <li>查单例缓存（一级缓存）：命中则直接返回</li>
- *     <li>获取 Bean 定义：从 {@code beanDefinitionMap} 中查找对应名称的定义</li>
- *     <li>创建 Bean 实例：通过反射调用默认构造器</li>
- *     <li>注册为单例：将新实例放入单例缓存，后续请求直接命中缓存</li>
+ *     <li>从 {@code beanDefinitionMap} 查找对应的 {@link BeanDefinition}</li>
+ *     <li>调用 {@link #createBean(BeanDefinition)} 完成实例化和字段依赖注入</li>
+ *     <li>若为单例，将实例存入 {@code singletonObjects} 缓存</li>
+ *     <li>返回可用的 Bean 实例</li>
  * </ol>
  *
- * <p><b>线程安全：</b>使用 {@link ConcurrentHashMap} 存储 Bean 定义，
- * 保证并发环境下的读写安全。单例缓存同样由父类 {@link DefaultSingletonBeanRegistry}
- * 的 {@code ConcurrentHashMap} 保证线程安全。
- *
- * <p><b>当前限制（后续版本将完善）：</b>
- * <ul>
- *     <li>仅支持无参构造器实例化</li>
- *     <li>尚未实现依赖注入（{@code @Autowired}）</li>
- *     <li>尚未实现 Bean 后处理器（BeanPostProcessor）</li>
- *     <li>不支持原型作用域（prototype scope）</li>
- * </ul>
+ * <p><b>典型使用场景：</b>
+ * <pre>{@code
+ * // 通常不直接使用，而是通过 ApplicationContext 间接调用
+ * DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+ * factory.registerBeanDefinition("userService", beanDefinition);
+ * UserService userService = (UserService) factory.getBean("userService");
+ * }</pre>
  *
  * @author YouHong5286
  * @version 1.0.0
- * @since 2026/7/16 08:11
  * @see BeanFactory
  * @see BeanDefinitionRegistry
  * @see DefaultSingletonBeanRegistry
+ * @since 2026/7/15 17:33
  */
 public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry implements BeanFactory, BeanDefinitionRegistry {
 
     /**
-     * Bean 定义注册表——存储所有已注册的 Bean 定义元数据。
+     * Bean 定义映射表——存储所有已注册的 BeanDefinition。
      *
-     * <p>key 为 Bean 名称，value 为对应的 {@link BeanDefinition} 元数据。
-     * 使用 {@link ConcurrentHashMap} 保证并发安全。
+     * <p>以 Bean 名称为 key，对应的 {@link BeanDefinition} 为 value。
+     * 该映射是 {@link BeanDefinitionRegistry} 接口的核心数据结构，
+     * 所有的注册（{@link #registerBeanDefinition}）、查询（{@link #getBeanDefinition}）、
+     * 判断（{@link #containsBeanDefinition}）操作都基于此 Map 完成。
+     *
+     * <p>使用 {@link ConcurrentHashMap} 确保并发场景下的线程安全。
      */
     private final Map<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
 
     /**
-     * 向容器注册一个 Bean 定义。
+     * Bean 定义名称数组——维护所有已注册 Bean 的名称列表。
      *
-     * <p>注册前会对参数进行非空校验，并检查是否已存在同名的 Bean 定义，
-     * 若已存在则抛出 {@link IllegalStateException}。
+     * <p>与 {@link #beanDefinitionMap} 配合使用：
+     * <ul>
+     *     <li>{@code beanDefinitionMap} 提供 O(1) 的按名查找能力</li>
+     *     <li>{@code beanDefinitionNames} 保留注册顺序，支持按顺序遍历</li>
+     * </ul>
+     *
+     * <p>在容器启动的预实例化阶段（{@code preInstantiateSingletons}），
+     * 需要按注册顺序遍历所有 BeanDefinition，此时该数组比 Map.keySet() 更合适，
+     * 因为后者不保证遍历顺序。
+     */
+    private String[] beanDefinitionNames = new String[0];
+
+    /**
+     * 将 BeanDefinition 注册到容器中。
+     *
+     * <p>注册流程：
+     * <ol>
+     *     <li>将 BeanDefinition 存入 {@link #beanDefinitionMap}（按名称索引）</li>
+     *     <li>将 Bean 名称追加到 {@link #beanDefinitionNames} 数组</li>
+     * </ol>
+     *
+     * <p>当前实现未校验重复名称：同名定义会覆盖 Map 中的旧值，同时名称数组仍会追加一次。
+     * 这是学习版本的简化行为，调用方不应依赖重复注册；后续应明确选择禁止覆盖或受控覆盖策略。
      *
      * @param beanName       Bean 的唯一标识名称，不能为 {@code null}
-     * @param beanDefinition 待注册的 Bean 定义元数据，不能为 {@code null}
-     * @throws IllegalStateException    如果该名称已存在对应的 Bean 定义
-     * @throws IllegalArgumentException 如果任一参数为 {@code null}
+     * @param beanDefinition Bean 定义元数据，不能为 {@code null}
      */
     @Override
     public void registerBeanDefinition(String beanName, BeanDefinition beanDefinition) {
-        Assert.notNull(beanName, "Bean name must not be null");
-        Assert.notNull(beanDefinition, "BeanDefinition must not be null");
-
-        if (containsBeanDefinition(beanName)) {
-            throw new IllegalStateException("BeanDefinition '" + beanName + "' already exists.");
-        }
         beanDefinitionMap.put(beanName, beanDefinition);
+        beanDefinitionNames = addElement(beanDefinitionNames, beanName);
     }
 
     /**
-     * 根据 Bean 名称获取 Bean 定义元数据。
+     * 判断容器中是否包含指定名称的 BeanDefinition。
      *
-     * @param beanName Bean 的唯一标识名称
-     * @return 与指定名称关联的 {@link BeanDefinition}
-     * @throws BeanDefinitionNotFoundException 如果未找到对应的 Bean 定义
-     */
-    @Override
-    public BeanDefinition getBeanDefinition(String beanName) {
-        if (beanDefinitionMap.get(beanName) == null) {
-            throw new BeanDefinitionNotFoundException(beanName);
-        }
-        return beanDefinitionMap.get(beanName);
-    }
-
-    /**
-     * 判断指定名称的 Bean 定义是否已注册。
-     *
-     * @param beanName Bean 的唯一标识名称
-     * @return {@code true} 如果已注册，否则返回 {@code false}
+     * @param beanName 待检查的 Bean 名称，不能为 {@code null}
+     * @return 如果存在对应的 BeanDefinition 则返回 {@code true}，否则返回 {@code false}
      */
     @Override
     public boolean containsBeanDefinition(String beanName) {
@@ -110,92 +120,213 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     }
 
     /**
-     * 根据名称获取（或创建）Bean 实例。
+     * 根据名称获取 BeanDefinition。
      *
-     * <p>执行流程：
-     * <ol>
-     *     <li>查询单例缓存，命中则直接返回</li>
-     *     <li>获取对应的 {@link BeanDefinition}</li>
-     *     <li>通过反射创建 Bean 实例（当前仅支持无参构造器）</li>
-     *     <li>将新实例注册到单例缓存</li>
-     * </ol>
-     *
-     * @param beanName Bean 的唯一标识名称
-     * @return 对应的 Bean 实例（单例）
-     * @throws BeanDefinitionNotFoundException 如果未找到对应的 Bean 定义
-     * @throws RuntimeException                如果实例化过程中发生反射异常
+     * @param beanName Bean 的唯一标识名称，不能为 {@code null}
+     * @return 与指定名称关联的 {@link BeanDefinition} 实例
+     * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
      */
     @Override
-    public Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        // 步骤 1：查单例缓存
+    public BeanDefinition getBeanDefinition(String beanName) {
+        BeanDefinition beanDefinition = beanDefinitionMap.get(beanName);
+        if (beanDefinition == null) {
+            throw new BeanDefinitionNotFoundException(beanName);
+        }
+        return beanDefinition;
+    }
+
+    /**
+     * 获取所有已注册的 BeanDefinition 名称。
+     *
+     * <p>返回的数组保持注册顺序，即先注册的 Bean 名称在前。
+     * 该方法主要用于容器启动时的预实例化阶段，
+     * 按顺序遍历所有 BeanDefinition 并创建单例 Bean。
+     *
+     * @return 包含所有 Bean 名称的数组，若无任何注册则返回空数组
+     */
+    @Override
+    public String[] getBeanDefinitionNames() {
+        return beanDefinitionNames;
+    }
+
+    /**
+     * 根据 Bean 名称获取或创建 Bean 实例。
+     *
+     * <p>这是 IoC 容器最核心的方法，实现了"按名称获取 Bean"的契约。
+     * 内部流程如下：
+     * <ol>
+     *     <li><b>单例检查：</b>查询 {@code singletonObjects} 缓存，若命中则直接返回</li>
+     *     <li><b>定义查找：</b>从 {@code beanDefinitionMap} 获取对应的 {@link BeanDefinition}</li>
+     *     <li><b>实例创建：</b>调用 {@link #createBean(BeanDefinition)} 通过反射创建</li>
+     *     <li><b>缓存存储：</b>若为单例，将实例存入 {@code singletonObjects}</li>
+     * </ol>
+     *
+     * @param beanName Bean 的唯一标识名称，不能为 {@code null}
+     * @return 与指定名称关联的 Bean 实例
+     * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
+     * @throws BeanCreationException           如果 Bean 实例化或依赖注入过程中发生反射异常
+     */
+    @Override
+    public Object getBean(String beanName) {
+        // 1. 单例缓存查询——若已创建则直接返回，避免重复创建
         Object singleton = getSingleton(beanName);
         if (singleton != null) {
             return singleton;
         }
-        // 步骤 2：获取 Bean 定义（找不到时自动抛出 BeanDefinitionNotFoundException）
+
+        // 2. 获取 BeanDefinition——不存在则抛出异常
         BeanDefinition beanDefinition = getBeanDefinition(beanName);
-        // 步骤 3-4：创建实例并注册为单例
+
+        // 3. 通过反射创建 Bean 实例
         Object bean = createBean(beanDefinition);
-        registerSingleton(beanName, bean);
+
+        // 4. 单例注册——存入缓存供后续复用
+        if (beanDefinition.isSingleton()) {
+            registerSingleton(beanName, bean);
+        }
+
         return bean;
     }
 
     /**
-     * 根据类型获取 Bean 实例。
+     * 根据 Bean 类型获取 Bean 实例（类型安全版本）。
      *
-     * <p>遍历所有已注册的 {@link BeanDefinition}，使用 {@link Class#isAssignableFrom(Class)}
-     * 进行类型匹配，因此支持匹配子类和接口实现类。
+     * <p>该方法遍历所有已注册的 BeanDefinition，查找 {@code beanClass}
+     * 与 {@code requiredType} 匹配的第一个 Bean 并返回。
+     * 使用泛型参数 {@code <T>} 避免调用方手动进行类型转换。
      *
-     * <p>若找到多个匹配类型的 Bean，将抛出异常提示类型不唯一。
+     * <p><b>注意：</b>当前实现不支持多 Bean 场景下的优先级选择（如 {@code @Primary}）。
+     * 若存在多个同类型 Bean，返回的是遍历顺序中的第一个，行为不确定。
+     * 后续可通过 {@code @Primary} 注解或类型优先级策略增强。
      *
      * @param <T>          期望的 Bean 类型
-     * @param requiredType 期望的 Bean 类型 Class 对象
-     * @return 匹配类型的 Bean 实例
-     * @throws RuntimeException 如果未找到匹配类型的 Bean，或找到多个匹配类型的 Bean
+     * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
+     * @return 与指定类型匹配的 Bean 实例
+     * @throws BeansException 如果不存在指定类型的 Bean，或匹配 Bean 的创建过程失败
      */
     @Override
     @SuppressWarnings("unchecked")
-    public <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        String beanName = null;
+    public <T> T getBean(Class<T> requiredType) {
+        // 遍历所有 BeanDefinition，按类型匹配
         for (BeanDefinition beanDefinition : beanDefinitionMap.values()) {
-            // 使用 isAssignableFrom 支持子类和接口实现类匹配
             if (requiredType.isAssignableFrom(beanDefinition.getBeanClass())) {
-
-                if (beanName != null) {
-                    throw new RuntimeException(
-                            "Multiple beans of type "
-                                    + requiredType.getName());
-                }
-
-                beanName = beanDefinition.getBeanName();
+                return (T) getBean(beanDefinition.getBeanName());
             }
         }
-        if (beanName == null) {
-            throw new RuntimeException("No bean of type "
-                    + requiredType.getName());
-        }
-        return (T) getBean(beanName);
+
+        throw new BeansException("No bean of type " + requiredType.getName() + " found");
     }
 
     /**
      * 通过反射创建 Bean 实例。
      *
-     * <p>当前仅支持调用无参构造器（{@code getDeclaredConstructor().newInstance()}）。
-     * 后续版本将扩展支持：
+     * <p>当前实现仅支持无参构造器创建，后续可扩展支持：
      * <ul>
-     *     <li>构造器注入（Constructor Injection）</li>
-     *     <li>依赖注入——处理 {@code @Autowired} 注解的字段</li>
-     *     <li>{@code @PostConstruct} 初始化回调</li>
+     *     <li>构造器注入（{@code @Autowired} 标注构造器）</li>
+     *     <li>静态工厂方法（{@code @Bean}）</li>
+     *     <li>实例工厂方法（{@code factory-bean / factory-method}）</li>
      * </ul>
      *
-     * @param beanDefinition Bean 定义元数据
-     * @return 新创建的 Bean 实例
-     * @throws NoSuchMethodException     如果 Bean 类没有可访问的无参构造器
-     * @throws InstantiationException    如果 Bean 类是抽象类或接口
-     * @throws IllegalAccessException    如果构造器不可访问
-     * @throws InvocationTargetException 如果构造器内部抛出异常
+     * @param beanDefinition Bean 定义元数据，包含待实例化的类信息
+     * @return 已完成实例化和字段填充的 Bean 实例
+     * @throws BeanCreationException 如果实例化或依赖注入过程中发生反射异常
      */
-    private Object createBean(BeanDefinition beanDefinition) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
-        return beanDefinition.getBeanClass().getDeclaredConstructor().newInstance();
+    private Object createBean(BeanDefinition beanDefinition) {
+
+        Object bean;
+        try {
+            // 获取无参构造器并创建实例
+            bean = instantiateBean(beanDefinition);
+            populateBean(beanDefinition, bean);
+        } catch (ReflectiveOperationException exception) {
+            throw new BeanCreationException(
+                    beanDefinition.getBeanName(),
+                    "Bean instantiation or dependency injection failed",
+                    exception
+            );
+        }
+
+        return bean;
+    }
+
+    /**
+     * 对已创建的 Bean 实例进行属性填充（依赖注入）。
+     *
+     * <p>扫描 Bean 类中所有声明的字段，对标注了 {@link Autowired @Autowired} 的字段
+     * 递归调用 {@link #getBean(Class)} 获取依赖实例，并通过反射完成字段注入。
+     *
+     * <p><b>当前限制：</b>
+     * <ul>
+     *     <li>仅支持字段注入，不支持构造器注入和 setter 注入</li>
+     *     <li>不处理父类中声明的字段（仅扫描当前类的 {@code declaredFields}）</li>
+     *     <li>不支持 {@code @Autowired(required=false)} 可选注入语义</li>
+     *     <li>不检测循环依赖，若存在循环引用将导致 {@link StackOverflowError}</li>
+     * </ul>
+     *
+     * @param beanDefinition Bean 定义元数据，用于获取 Bean 的 Class 信息
+     * @param bean           已实例化但尚未填充属性的 Bean 对象
+     * @throws IllegalAccessException 如果目标字段无法通过反射写入
+     */
+    private void populateBean(
+            BeanDefinition beanDefinition,
+            Object bean)
+            throws IllegalAccessException {
+
+        Class<?> beanClass = beanDefinition.getBeanClass();
+        // 获取当前类声明的所有字段（不包含父类字段）
+        Field[] fields = beanClass.getDeclaredFields();
+
+        for (Field field : fields) {
+            // 仅处理标注了 @Autowired 的字段
+            if (!field.isAnnotationPresent(Autowired.class)) {
+                continue;
+            }
+
+            // 按字段类型从容器获取依赖 Bean（递归触发依赖的创建）
+            Object dependency = getBean(field.getType());
+
+            // 突破 private 访问限制，通过反射注入依赖
+            field.setAccessible(true);
+            field.set(bean, dependency);
+        }
+    }
+
+    /**
+     * 通过反射调用无参构造器创建 Bean 实例。
+     *
+     * <p>该方法是 Bean 生命周期的第一步（实例化）
+     * 获取无参构造器并调用 {@link java.lang.reflect.Constructor#newInstance(Object...)} 创建对象。
+     *
+     * @param beanDefinition Bean 定义元数据，提供待实例化的目标类
+     * @return 通过无参构造器创建的 Bean 实例
+     * @throws NoSuchMethodException     如果目标类不存在无参构造器
+     * @throws InstantiationException    如果目标类是抽象类、接口、数组类型、基本类型或 {@code void}
+     * @throws IllegalAccessException    如果无参构造器不可访问（例如为 {@code private}）
+     * @throws InvocationTargetException 如果构造器内部抛出了异常
+     */
+    private static Object instantiateBean(BeanDefinition beanDefinition) throws ReflectiveOperationException {
+        // 1. 获取目标类的 Class 对象
+        // 2. 获取该类声明的无参构造器（包含 private）
+        // 3. 通过构造器反射创建实例
+        return beanDefinition.getBeanClass()
+                .getDeclaredConstructor()
+                .newInstance();
+    }
+
+    /**
+     * 向数组末尾追加一个元素，返回新的数组。
+     *
+     * <p>由于 Java 数组长度固定，需要创建新数组并复制原内容。
+     * 该工具方法用于维护 {@link #beanDefinitionNames} 数组的增长。
+     *
+     * @param array   原数组，可以为空数组但不能为 {@code null}
+     * @param element 待追加的元素
+     * @return 包含原元素和新元素的新数组
+     */
+    private String[] addElement(String[] array, String element) {
+        String[] newArray = new String[array.length + 1];
+        System.arraycopy(array, 0, newArray, 0, array.length);
+        newArray[array.length] = element;
+        return newArray;
     }
 }

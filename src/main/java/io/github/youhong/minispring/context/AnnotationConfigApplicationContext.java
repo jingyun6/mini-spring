@@ -2,6 +2,7 @@ package io.github.youhong.minispring.context;
 
 import io.github.youhong.minispring.beans.BeanDefinition;
 import io.github.youhong.minispring.beans.DefaultListableBeanFactory;
+import io.github.youhong.minispring.exception.BeansException;
 import io.github.youhong.minispring.scanner.ClassPathScanner;
 
 import java.beans.Introspector;
@@ -30,19 +31,22 @@ import java.util.Set;
  * userService.doSomething();
  * }</pre>
  *
- * <p><b>当前限制：</b>Bean 的自动装配（{@code @Autowired}）尚未实现，
- * 后续版本将在 {@code refresh()} 中增加依赖注入步骤。
+ * <p><b>当前限制：</b>容器目前只支持基于类型的 {@code @Autowired} 字段注入，
+ * 尚未处理继承字段、限定符、构造器注入和循环依赖。
  *
  * @author YouHong5286
  * @version 1.0.0
- * @since 2026/7/16
  * @see ApplicationContext
  * @see DefaultListableBeanFactory
  * @see ClassPathScanner
+ * @since 2026/7/16
  */
 public class AnnotationConfigApplicationContext implements ApplicationContext {
 
-    /** 底层 Bean 工厂，实际承担 Bean 定义管理与实例创建职责 */
+    /**
+     * 底层 Bean 工厂，负责保存 BeanDefinition、创建 Bean 并管理单例实例。
+     * ApplicationContext 本身只负责组织容器的启动流程，并将 Bean 查询操作委托给该工厂。
+     */
     private final DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
 
     /**
@@ -51,55 +55,85 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
      * <p>传入基础包路径后立即执行 {@link #refresh(String)} 完成扫描与预实例化。
      *
      * @param basePackage 待扫描的基础包路径，如 {@code "com.example"}
-     * @throws InvocationTargetException 如果 Bean 构造器内部抛出异常
-     * @throws NoSuchMethodException     如果 Bean 类缺少无参构造器
-     * @throws InstantiationException    如果 Bean 类是抽象类或接口
-     * @throws IllegalAccessException    如果无参构造器不可访问
+     * @throws BeansException 如果 BeanDefinition 查找、Bean 创建或依赖注入失败
      */
-    public AnnotationConfigApplicationContext(String basePackage) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public AnnotationConfigApplicationContext(String basePackage) {
         refresh(basePackage);
     }
 
     /**
      * 容器刷新——执行扫描、注册、预实例化的完整启动流程。
      *
-     * <p>该方法模拟了 Spring 中 {@code AbstractApplicationContext#refresh()} 的核心思路，
-     * 但做了极大简化。后续版本将拆分为更细粒度的生命周期步骤。
+     * <p>该方法模拟 Spring 中 {@code AbstractApplicationContext#refresh()} 的流程编排思想，
+     * 先完成全部 BeanDefinition 的扫描和注册，再统一预实例化单例 Bean。两个阶段必须分离，
+     * 从而避免 Bean 的创建结果依赖类路径扫描顺序。</p>
      *
      * @param basePackage 待扫描的基础包路径
      */
-    private void refresh(String basePackage) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        // 步骤 1：类路径扫描
+    private void refresh(String basePackage) {
+        scanBeanDefinitions(basePackage);
+        preInstantiateSingletons();
+    }
+
+    /**
+     * 扫描指定包下的组件，并将扫描结果转换为 BeanDefinition 注册到 BeanFactory。
+     *
+     * <p>该阶段只处理 Bean 元数据，不创建任何 Bean 实例。完成全部定义注册后，
+     * {@link #preInstantiateSingletons()} 才会进入实例创建阶段。</p>
+     *
+     * @param basePackage 待扫描的基础包路径
+     */
+    private void scanBeanDefinitions(String basePackage) {
         ClassPathScanner classPathScanner = new ClassPathScanner();
         Set<Class<?>> classes = classPathScanner.scan(basePackage);
 
-        // 步骤 2-3：注册 BeanDefinition 并预实例化所有单例
         for (Class<?> clazz : classes) {
-            // Bean 名称：类名首字母小写（与 Spring 默认行为一致）
+            // 使用 JavaBeans 命名规则生成默认 Bean 名称，例如 UserService -> userService。
             String beanName = Introspector.decapitalize(clazz.getSimpleName());
             BeanDefinition beanDefinition = new BeanDefinition();
             beanDefinition.setBeanName(beanName);
             beanDefinition.setBeanClass(clazz);
             beanFactory.registerBeanDefinition(beanName, beanDefinition);
+        }
+    }
 
-            // getBean() 内部已完成实例化 + 单例注册，无需外层再次注册
-            beanFactory.getBean(beanName);
+    /**
+     * 提前创建当前容器中的全部单例 Bean。
+     *
+     * <p>该方法遍历已经完成注册的 BeanDefinition，仅对单例定义调用
+     * {@link DefaultListableBeanFactory#getBean(String)}。统一通过 getBean 创建对象，
+     * 可以复用单例缓存查询、BeanDefinition 查找和实例注册流程。</p>
+     *
+     * <p>当前尚未实现懒加载，因此所有单例都会在 ApplicationContext 启动时创建。</p>
+     */
+    private void preInstantiateSingletons() {
+        String[] beanDefinitionNames = beanFactory.getBeanDefinitionNames();
+
+        for (String beanDefinitionName : beanDefinitionNames) {
+            BeanDefinition beanDefinition = beanFactory.getBeanDefinition(beanDefinitionName);
+            if (beanDefinition.isSingleton()) {
+                beanFactory.getBean(beanDefinitionName);
+            }
         }
     }
 
     /**
      * 按名称获取 Bean 实例（委托给底层 BeanFactory）。
+     *
+     * @throws BeansException 如果 Bean 查找或创建失败
      */
     @Override
-    public Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public Object getBean(String beanName) {
         return beanFactory.getBean(beanName);
     }
 
     /**
      * 按类型获取 Bean 实例（委托给底层 BeanFactory）。
+     *
+     * @throws BeansException 如果 Bean 解析或创建失败
      */
     @Override
-    public <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public <T> T getBean(Class<T> requiredType) {
         return beanFactory.getBean(requiredType);
     }
 }
