@@ -30,8 +30,8 @@ import java.util.Set;
  * userService.doSomething();
  * }</pre>
  *
- * <p><b>当前限制：</b>Bean 的自动装配（{@code @Autowired}）尚未实现。
- * 后续版本将在 Bean 创建流程中加入属性填充阶段，而 {@code refresh()} 继续负责组织容器启动步骤。
+ * <p><b>当前限制：</b>容器目前只支持基于类型的 {@code @Autowired} 字段注入，
+ * 尚未处理继承字段、限定符、构造器注入和循环依赖。
  *
  * @author YouHong5286
  * @version 1.0.0
