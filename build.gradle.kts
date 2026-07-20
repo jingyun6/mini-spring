@@ -5,6 +5,13 @@ plugins {
 group = "io.github.youhong"
 version = "1.0-SNAPSHOT"
 
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+}
+
 repositories {
     mavenCentral()
 }
