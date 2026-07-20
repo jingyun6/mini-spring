@@ -32,9 +32,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *     <li>注册为单例：将新实例放入单例缓存，后续请求直接命中缓存</li>
  * </ol>
  *
- * <p><b>线程安全：</b>使用 {@link ConcurrentHashMap} 存储 Bean 定义，
- * 保证并发环境下的读写安全。单例缓存同样由父类 {@link DefaultSingletonBeanRegistry}
- * 的 {@code ConcurrentHashMap} 保证线程安全。
+ * <p><b>并发说明：</b>{@link ConcurrentHashMap} 保证 BeanDefinition 注册表和单例缓存的
+ * 单次读写操作安全，但当前 Bean 创建过程由“查询、创建、注册”多个步骤组成，尚未进行整体同步，
+ * 因此暂不保证同一 Bean 在并发首次获取时只会被创建一次。
  *
  * <p><b>当前限制（后续版本将完善）：</b>
  * <ul>
@@ -46,10 +46,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @author YouHong5286
  * @version 1.0.0
- * @since 2026/7/16 08:11
  * @see BeanFactory
  * @see BeanDefinitionRegistry
  * @see DefaultSingletonBeanRegistry
+ * @since 2026/7/16 08:11
  */
 public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry implements BeanFactory, BeanDefinitionRegistry {
 
@@ -57,7 +57,8 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * Bean 定义注册表——存储所有已注册的 Bean 定义元数据。
      *
      * <p>key 为 Bean 名称，value 为对应的 {@link BeanDefinition} 元数据。
-     * 使用 {@link ConcurrentHashMap} 保证并发安全。
+     * 使用 {@link ConcurrentHashMap} 保证注册表单次读写操作的线程安全；涉及检查后注册的
+     * 复合操作仍需由更高层的创建流程协调。
      */
     private final Map<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
 
@@ -110,6 +111,19 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     }
 
     /**
+     * 获取当前工厂中全部 BeanDefinition 的名称。
+     *
+     * <p>该方法返回调用时注册表内容的数组快照。底层使用 {@link ConcurrentHashMap}，
+     * 因此返回顺序不固定，调用方不能依赖 Bean 的注册顺序或实例化顺序。</p>
+     *
+     * @return BeanDefinition 名称数组；注册表为空时返回空数组
+     */
+    @Override
+    public String[] getBeanDefinitionNames() {
+        return beanDefinitionMap.keySet().toArray(new String[0]);
+    }
+
+    /**
      * 根据名称获取（或创建）Bean 实例。
      *
      * <p>执行流程：
@@ -123,7 +137,10 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @param beanName Bean 的唯一标识名称
      * @return 对应的 Bean 实例（单例）
      * @throws BeanDefinitionNotFoundException 如果未找到对应的 Bean 定义
-     * @throws RuntimeException                如果实例化过程中发生反射异常
+     * @throws NoSuchMethodException           如果 Bean 类不存在无参构造器
+     * @throws InstantiationException          如果 Bean 类不能被实例化
+     * @throws IllegalAccessException          如果无参构造器不可访问
+     * @throws InvocationTargetException       如果构造器内部抛出异常
      */
     @Override
     public Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {

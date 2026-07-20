@@ -1,5 +1,7 @@
 package io.github.youhong.minispring.beans;
 
+import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
+
 import java.lang.reflect.InvocationTargetException;
 
 /**
@@ -46,7 +48,11 @@ public interface BeanFactory {
      *
      * @param beanName Bean 的唯一标识名称，不能为 {@code null}
      * @return 与指定名称关联的 Bean 实例
-     * @throws NoSuchBeanDefinitionException 如果容器中不存在指定名称的 Bean 定义
+     * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
+     * @throws NoSuchMethodException           如果 Bean 类不存在无参构造器
+     * @throws InstantiationException          如果 Bean 类不能被实例化
+     * @throws IllegalAccessException          如果无参构造器不可访问
+     * @throws InvocationTargetException       如果构造器内部抛出异常
      */
     Object getBean(String beanName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
 
@@ -62,8 +68,11 @@ public interface BeanFactory {
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
-     * @throws NoSuchBeanDefinitionException 如果容器中不存在指定类型的 Bean 定义
-     * @throws NoUniqueBeanDefinitionException 如果容器中存在多个匹配类型的 Bean
+     * @throws RuntimeException          如果不存在指定类型的 Bean，或存在多个匹配类型的 Bean
+     * @throws NoSuchMethodException     如果匹配 Bean 的类不存在无参构造器
+     * @throws InstantiationException    如果匹配 Bean 的类不能被实例化
+     * @throws IllegalAccessException    如果无参构造器不可访问
+     * @throws InvocationTargetException 如果构造器内部抛出异常
      */
     <T> T getBean(Class<T> requiredType) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
 }
