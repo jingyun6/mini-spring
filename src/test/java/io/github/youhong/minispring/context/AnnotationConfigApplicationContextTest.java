@@ -1,5 +1,6 @@
 package io.github.youhong.minispring.context;
 
+import io.github.youhong.minispring.testfixture.InheritedOrderService;
 import io.github.youhong.minispring.testfixture.OrderService;
 import io.github.youhong.minispring.testfixture.UserService;
 import org.junit.jupiter.api.Test;
@@ -73,5 +74,18 @@ class AnnotationConfigApplicationContextTest {
                 context.getBean(OrderService.class);
 
         assertNull(orderService.getDesc());
+    }
+
+    @Test
+    void shouldInjectAutowiredFieldDeclaredInSuperclass() {
+        ApplicationContext context =
+                new AnnotationConfigApplicationContext(BASE_PACKAGE);
+        InheritedOrderService inheritedOrderService =
+                context.getBean(InheritedOrderService.class);
+        UserService userService =
+                context.getBean(UserService.class);
+
+        assertNotNull(inheritedOrderService.getUserService());
+        assertSame(userService, inheritedOrderService.getUserService());
     }
 }

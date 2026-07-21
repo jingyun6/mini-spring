@@ -32,7 +32,7 @@ import java.util.Set;
  * }</pre>
  *
  * <p><b>当前限制：</b>容器目前只支持基于类型的 {@code @Autowired} 字段注入，
- * 尚未处理继承字段、限定符、构造器注入和循环依赖。
+ * 尚未处理限定符、构造器注入和循环依赖。
  *
  * @author YouHong5286
  * @version 1.0.0

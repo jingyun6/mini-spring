@@ -252,13 +252,12 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 对已创建的 Bean 实例进行属性填充（依赖注入）。
      *
-     * <p>扫描 Bean 类中所有声明的字段，对标注了 {@link Autowired @Autowired} 的字段
+     * <p>沿 Bean 的继承层次逐级扫描声明字段，对标注了 {@link Autowired @Autowired} 的字段
      * 递归调用 {@link #getBean(Class)} 获取依赖实例，并通过反射完成字段注入。
      *
      * <p><b>当前限制：</b>
      * <ul>
      *     <li>仅支持字段注入，不支持构造器注入和 setter 注入</li>
-     *     <li>不处理父类中声明的字段（仅扫描当前类的 {@code declaredFields}）</li>
      *     <li>不支持 {@code @Autowired(required=false)} 可选注入语义</li>
      *     <li>不检测循环依赖，若存在循环引用将导致 {@link StackOverflowError}</li>
      * </ul>
@@ -272,9 +271,25 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
             Object bean)
             throws IllegalAccessException {
 
-        Class<?> beanClass = beanDefinition.getBeanClass();
-        // 获取当前类声明的所有字段（不包含父类字段）
-        Field[] fields = beanClass.getDeclaredFields();
+        // getDeclaredFields() 不会返回继承字段，因此需要逐级遍历父类，直到 Object 为止。
+        Class<?> currentClass = beanDefinition.getBeanClass();
+        while (currentClass != null && currentClass != Object.class) {
+            populateAutowiredFields(bean, currentClass);
+            currentClass = currentClass.getSuperclass();
+        }
+    }
+
+    /**
+     * 注入指定类直接声明的 {@code @Autowired} 字段。
+     *
+     * <p>传入的 Bean 可以是该声明类的子类实例；反射仍可以写入实例中由父类声明的字段。
+     *
+     * @param bean         待填充属性的 Bean 实例
+     * @param declaringClass 当前正在检查的字段声明类
+     * @throws IllegalAccessException 如果目标字段无法通过反射写入
+     */
+    private void populateAutowiredFields(Object bean, Class<?> declaringClass) throws IllegalAccessException {
+        Field[] fields = declaringClass.getDeclaredFields();
 
         for (Field field : fields) {
             // 仅处理标注了 @Autowired 的字段

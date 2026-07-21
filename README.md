@@ -25,7 +25,7 @@ mini-spring 是一个精简版的 Spring 学习框架，旨在通过手写核心
 ## 技术栈
 
 - **语言**: Java 21
-- **构建工具**: Gradle 8.13 (Kotlin DSL)
+- **构建工具**: Gradle 9.3 (Kotlin DSL)
 - **运行时依赖**: 无（核心容器使用纯 JDK 实现）
 - **测试框架**: JUnit 5
 
@@ -57,8 +57,10 @@ io.github.youhong.minispring
 │   ├── Assert       # 参数断言（fail-fast）
 │   └── StringUtils  # 字符串工具（首字母小写）
 └── testfixture         # 测试专用组件（位于 src/test）
-    ├── OrderService # @Autowired 注入目标
-    └── UserService  # 被注入的 @Component Bean
+    ├── BaseOrderService      # 声明待继承注入字段的抽象父类
+    ├── InheritedOrderService # 验证父类字段注入的 @Component Bean
+    ├── OrderService          # @Autowired 注入目标
+    └── UserService           # 被注入的 @Component Bean
 ```
 
 ### 类层次结构
@@ -124,7 +126,7 @@ io.github.youhong.minispring
 
 ### ✅ 7. 字段依赖注入
 - Bean 创建流程拆分为实例化与属性填充阶段
-- 扫描当前类声明的 `@Autowired` 字段
+- 沿 Bean 继承层次扫描当前类及父类声明的 `@Autowired` 字段
 - 统一通过 `BeanFactory#getBean(Class)` 获取依赖，复用单例缓存与创建流程
 
 ### ✅ 8. 异常体系
@@ -134,7 +136,8 @@ io.github.youhong.minispring
 - 公开 BeanFactory API 不再泄露反射受检异常
 
 ### ✅ 9. 自动化测试
-- 基于 JUnit 5 验证组件扫描、按类型获取、字段注入和单例复用
+- 基于 JUnit 5 验证组件扫描、按类型获取、当前类及父类字段注入和单例复用
+- 显式声明 JUnit Platform Launcher，兼容 Gradle 9 测试运行环境
 - 测试组件存放在 `src/test`，不进入框架运行时产物
 
 ### ✅ 10. 工具类
@@ -171,7 +174,6 @@ gradle test
 ## 待实现功能
 
 ### 🔲 依赖注入增强
-- 支持父类继承字段注入
 - 处理同类型多个候选 Bean，并支持限定符或优先级
 - 支持构造器注入和方法注入
 - 循环依赖检测与处理
@@ -216,6 +218,8 @@ gradle test
 | 2026-07-20 | 拆分 BeanDefinition 注册与单例预实例化阶段，避免 Bean 创建依赖扫描顺序 |
 | 2026-07-20 | 实现基于类型的 `@Autowired` 字段注入，并增加 JUnit 5 集成测试 |
 | 2026-07-20 | 建立 `BeansException` 异常体系，统一封装 Bean 创建过程中的反射异常 |
+| 2026-07-21 | 支持继承层次中的 `@Autowired` 字段注入，并补充父类私有字段集成测试 |
+| 2026-07-21 | 显式引入 JUnit Platform Launcher，恢复 Gradle 9 下的完整测试执行 |
 
 ---
 
