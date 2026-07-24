@@ -2,6 +2,57 @@
 
 本文件记录 mini-spring 各个学习里程碑的主要变化。
 
+## [Unreleased]
+
+### Documentation
+
+- README 同步到 v0.3.0 的实际能力、限制和完成进度
+- 新增 ROADMAP，记录整体权重、版本课程拆分和验收标准
+- 固化每课完成后同步测试、README、ROADMAP、CHANGELOG 和版本状态的收尾流程
+
+## [0.3.0] - 2026-07-24
+
+单例并发创建安全版本。
+
+### Added
+
+- BeanFactory 级单例创建监视器
+- 单例缓存的锁外快速查询和锁内二次查询
+- 16 个并发请求只创建一个实例并返回同一引用的自动化测试
+- 单例并发创建与循环依赖检测的源码设计说明
+
+### Changed
+
+- singleton Bean 的检查、创建、依赖注入和注册在同一监视器内完成
+- prototype Bean 绕过单例创建监视器，每次请求独立创建
+- 更新容器、应用上下文和注入注解中关于并发与循环依赖的说明
+
+### Known limitations
+
+- 不同 singleton Bean 的首次创建仍使用同一个 BeanFactory 级监视器串行执行
+- 尚未通过早期 Bean 引用解决循环依赖
+
+## [0.2.0] - 2026-07-24
+
+循环依赖检测版本。
+
+### Added
+
+- 基于 `ThreadLocal<Deque<String>>` 的线程级 Bean 创建路径
+- 直接自依赖和多个 Bean 相互依赖检测
+- 包含完整闭环顺序的循环依赖错误信息
+- 创建失败后的路径清理与重试测试
+
+### Changed
+
+- 循环依赖不再以 `StackOverflowError` 失败，改为抛出 `BeanCreationException`
+- Bean 创建路径在 `finally` 中清理，空路径对应的 ThreadLocal 会被移除
+
+### Known limitations
+
+- 当前只检测并拒绝循环依赖，尚未通过早期 Bean 引用解决
+- 本版本尚未保证并发获取同一单例时只实例化一次
+
 ## [0.1.0] - 2026-07-24
 
 首个可发布的 IoC 容器基础版本。
