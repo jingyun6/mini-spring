@@ -3,11 +3,15 @@ package io.github.youhong.minispring.beans;
 import io.github.youhong.minispring.annotation.Autowired;
 import io.github.youhong.minispring.exception.BeanCreationException;
 import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
-import io.github.youhong.minispring.exception.BeansException;
+import io.github.youhong.minispring.exception.NoSuchBeanDefinitionException;
+import io.github.youhong.minispring.exception.NoUniqueBeanDefinitionException;
 import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
+import io.github.youhong.minispring.utils.Assert;
+import io.github.youhong.minispring.utils.StringUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -92,18 +96,36 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      *
      * <p>注册流程：
      * <ol>
-     *     <li>将 BeanDefinition 存入 {@link #beanDefinitionMap}（按名称索引）</li>
+     *     <li>校验 Bean 名称和 BeanDefinition</li>
+     *     <li>检查是否已经存在同名定义</li>
+     *     <li>将 BeanDefinition 存入 {@link #beanDefinitionMap}</li>
      *     <li>将 Bean 名称追加到 {@link #beanDefinitionNames} 数组</li>
      * </ol>
      *
-     * <p>当前实现未校验重复名称：同名定义会覆盖 Map 中的旧值，同时名称数组仍会追加一次。
-     * 这是学习版本的简化行为，调用方不应依赖重复注册；后续应明确选择禁止覆盖或受控覆盖策略。
+     * <p>同名定义不允许覆盖。注册冲突发生时保留原 BeanDefinition，名称数组也不会改变。</p>
      *
      * @param beanName       Bean 的唯一标识名称，不能为 {@code null}
      * @param beanDefinition Bean 定义元数据，不能为 {@code null}
+     * @throws IllegalArgumentException 如果 Bean 名称为空或 BeanDefinition 为 {@code null}
+     * @throws IllegalStateException    如果已经存在同名 BeanDefinition
      */
     @Override
     public void registerBeanDefinition(String beanName, BeanDefinition beanDefinition) {
+        // Bean 名称和定义是注册操作的必要输入，进入容器存储前快速失败。
+        if (StringUtils.isBlank(beanName)) {
+            throw new IllegalArgumentException("beanName must not be null or empty");
+        }
+        if (beanDefinition == null) {
+            throw new IllegalArgumentException("beanDefinition must not be null");
+        }
+
+        // 禁止覆盖已有定义，确保 Map 与名称数组始终表示同一组 BeanDefinition。
+        if (beanDefinitionMap.containsKey(beanName)) {
+            throw new IllegalStateException("Cannot register bean definition " + beanDefinition +
+                    " for bean '" + beanName +
+                    "': there is already " + getBeanDefinition(beanName) + " bound");
+        }
+
         beanDefinitionMap.put(beanName, beanDefinition);
         beanDefinitionNames = addElement(beanDefinitionNames, beanName);
     }
@@ -142,11 +164,12 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * 该方法主要用于容器启动时的预实例化阶段，
      * 按顺序遍历所有 BeanDefinition 并创建单例 Bean。
      *
-     * @return 包含所有 Bean 名称的数组，若无任何注册则返回空数组
+     * @return 包含所有 Bean 名称的防御性副本；若无任何注册则返回空数组
      */
     @Override
     public String[] getBeanDefinitionNames() {
-        return beanDefinitionNames;
+        // 返回副本，防止调用方通过数组引用修改容器内部注册状态。
+        return beanDefinitionNames.clone();
     }
 
     /**
@@ -191,30 +214,49 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 根据 Bean 类型获取 Bean 实例（类型安全版本）。
      *
-     * <p>该方法遍历所有已注册的 BeanDefinition，查找 {@code beanClass}
-     * 与 {@code requiredType} 匹配的第一个 Bean 并返回。
-     * 使用泛型参数 {@code <T>} 避免调用方手动进行类型转换。
+     * <p>该方法先根据 BeanDefinition 中的类型元数据收集全部候选者，再判断候选数量。
+     * 只有存在唯一候选者时才会调用 {@link #getBean(String)} 获取实例，避免为类型匹配
+     * 提前创建不需要的 Bean。
      *
-     * <p><b>注意：</b>当前实现不支持多 Bean 场景下的优先级选择（如 {@code @Primary}）。
-     * 若存在多个同类型 Bean，返回的是遍历顺序中的第一个，行为不确定。
-     * 后续可通过 {@code @Primary} 注解或类型优先级策略增强。
+     * <p><b>唯一性规则：</b>
+     * <ul>
+     *     <li>没有候选者时抛出 {@link NoSuchBeanDefinitionException}</li>
+     *     <li>只有一个候选者时创建或复用该 Bean</li>
+     *     <li>存在多个候选者时抛出 {@link NoUniqueBeanDefinitionException}</li>
+     * </ul>
+     * 后续可通过 {@code @Primary} 或 {@code @Qualifier} 扩展多候选选择策略。
      *
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
-     * @throws BeansException 如果不存在指定类型的 Bean，或匹配 Bean 的创建过程失败
+     * @throws IllegalArgumentException         如果 {@code requiredType} 为 {@code null}
+     * @throws NoSuchBeanDefinitionException    如果不存在匹配类型的 BeanDefinition
+     * @throws NoUniqueBeanDefinitionException  如果存在多个匹配类型的 BeanDefinition
+     * @throws BeanCreationException            如果唯一候选 Bean 的创建过程失败
      */
     @Override
-    @SuppressWarnings("unchecked")
     public <T> T getBean(Class<T> requiredType) {
-        // 遍历所有 BeanDefinition，按类型匹配
-        for (BeanDefinition beanDefinition : beanDefinitionMap.values()) {
-            if (requiredType.isAssignableFrom(beanDefinition.getBeanClass())) {
-                return (T) getBean(beanDefinition.getBeanName());
-            }
+        Assert.notNull(requiredType, "requiredType must not be null");
+
+        // 候选发现只读取 BeanDefinition 元数据，不在这一阶段创建 Bean 实例。
+        List<BeanDefinition> candidates = beanDefinitionMap.values().stream()
+                .filter(beanDefinition -> requiredType.isAssignableFrom(beanDefinition.getBeanClass()))
+                .toList();
+
+        if (candidates.isEmpty()) {
+            throw new NoSuchBeanDefinitionException(requiredType);
+        }
+        if (candidates.size() > 1) {
+            List<String> candidateNames = candidates.stream()
+                    .map(BeanDefinition::getBeanName)
+                    .toList();
+            throw new NoUniqueBeanDefinitionException(requiredType, candidateNames);
         }
 
-        throw new BeansException("No bean of type " + requiredType.getName() + " found");
+        // 确定唯一候选者后，统一复用按名称获取流程及其单例缓存。
+        BeanDefinition beanDefinition = candidates.getFirst();
+        Object bean = getBean(beanDefinition.getBeanName());
+        return requiredType.cast(bean);
     }
 
     /**
@@ -284,7 +326,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      *
      * <p>传入的 Bean 可以是该声明类的子类实例；反射仍可以写入实例中由父类声明的字段。
      *
-     * @param bean         待填充属性的 Bean 实例
+     * @param bean           待填充属性的 Bean 实例
      * @param declaringClass 当前正在检查的字段声明类
      * @throws IllegalAccessException 如果目标字段无法通过反射写入
      */
