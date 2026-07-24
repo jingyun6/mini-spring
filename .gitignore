@@ -5,7 +5,6 @@
 # Gradle
 .gradle/
 build/
-gradle/
 
 CLAUDE.md
 # Java
@@ -24,6 +23,7 @@ src/main/java/io/github/youhong/minispring/demo/*
 
 # Package Files #
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
@@ -38,3 +38,4 @@ replay_pid*
 # OS
 .DS_Store
 Thumbs.db
+/.mcp.json

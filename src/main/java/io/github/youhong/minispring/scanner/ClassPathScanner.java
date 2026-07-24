@@ -48,6 +48,12 @@ import java.util.Set;
 public class ClassPathScanner {
 
     /**
+     * 创建类路径扫描器。
+     */
+    public ClassPathScanner() {
+    }
+
+    /**
      * 扫描指定包路径下的所有 {@code @Component} 类。
      *
      * <p>通过当前线程的上下文类加载器定位包对应的物理路径，

@@ -65,6 +65,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry implements BeanFactory, BeanDefinitionRegistry {
 
     /**
+     * 创建一个空的 BeanFactory，等待后续注册 BeanDefinition。
+     */
+    public DefaultListableBeanFactory() {
+    }
+
+    /**
      * Bean 定义映射表——存储所有已注册的 BeanDefinition。
      *
      * <p>以 Bean 名称为 key，对应的 {@link BeanDefinition} 为 value。
@@ -110,7 +116,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @throws IllegalStateException    如果已经存在同名 BeanDefinition
      */
     @Override
-    public void registerBeanDefinition(String beanName, BeanDefinition beanDefinition) {
+    public synchronized void registerBeanDefinition(String beanName, BeanDefinition beanDefinition) {
         // Bean 名称和定义是注册操作的必要输入，进入容器存储前快速失败。
         if (StringUtils.isBlank(beanName)) {
             throw new IllegalArgumentException("beanName must not be null or empty");
@@ -167,7 +173,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @return 包含所有 Bean 名称的防御性副本；若无任何注册则返回空数组
      */
     @Override
-    public String[] getBeanDefinitionNames() {
+    public synchronized String[] getBeanDefinitionNames() {
         // 返回副本，防止调用方通过数组引用修改容器内部注册状态。
         return beanDefinitionNames.clone();
     }

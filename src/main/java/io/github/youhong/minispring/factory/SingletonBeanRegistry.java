@@ -7,8 +7,8 @@ package io.github.youhong.minispring.factory;
  * 解耦。它属于 IoC 容器基础设施层，负责管理已完成实例化的单例 Bean 的运行时缓存。
  *
  * <p><b>设计意图：</b>将"单例缓存的管理"与"Bean 的创建流程"分离，遵循单一职责原则（SRP）。
- * {@link DefaultSingletonBeanRegistry} 使用线程安全的 {@code ConcurrentHashMap}
- * 作为默认存储实现。
+ * {@link DefaultSingletonBeanRegistry} 使用 {@code ConcurrentHashMap}
+ * 作为默认存储实现，保证单次缓存操作安全。
  *
  * <p><b>与 Spring 的对应关系：</b>对应 Spring Framework 中的
  * {@code org.springframework.beans.factory.support.SingletonBeanRegistry} 接口，

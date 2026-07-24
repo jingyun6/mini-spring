@@ -1,21 +1,20 @@
 package io.github.youhong.minispring.factory;
 
-import io.github.youhong.minispring.beans.BeanDefinition;
 import io.github.youhong.minispring.utils.Assert;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * {@link SingletonBeanRegistry} 接口的默认实现。
  *
- * <p>使用线程安全的 {@link ConcurrentHashMap} 作为单例 Bean 的存储容器，
- * 提供单例 Bean 的注册、获取和存在性检查功能。
+ * <p>使用 {@link ConcurrentHashMap} 作为单例 Bean 的存储容器，
+ * 提供单例 Bean 的注册、获取和存在性检查功能。Map 的单次读写是线程安全的，
+ * 但当前版本尚未保证完整 Bean 创建流程的并发唯一性。
  *
  * <p><b>设计要点：</b>
  * <ul>
- *     <li>存储容器选用 {@code ConcurrentHashMap}，保证并发环境下的读写安全</li>
+ *     <li>存储容器选用 {@code ConcurrentHashMap}，保证单次缓存读写安全</li>
  *     <li>不允许重复注册同名单例 Bean，重复注册将抛出 {@link IllegalArgumentException}</li>
  *     <li>所有公共方法均对参数进行非空断言，遵循快速失败（fail-fast）原则</li>
  * </ul>
@@ -35,10 +34,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DefaultSingletonBeanRegistry implements SingletonBeanRegistry {
 
     /**
+     * 创建一个空的单例 Bean 注册表。
+     */
+    public DefaultSingletonBeanRegistry() {
+    }
+
+    /**
      * 单例 Bean 缓存池。
      *
      * <p>key 为 Bean 名称，value 为对应的单例 Bean 实例。
-     * 使用 {@link ConcurrentHashMap} 保证线程安全，支持高并发读写。
+     * 使用 {@link ConcurrentHashMap} 保证单次缓存读写的线程安全。
      */
     private final Map<String, Object> singletonObjects = new ConcurrentHashMap<>();
 

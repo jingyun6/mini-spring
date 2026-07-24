@@ -61,6 +61,9 @@ public class NoSuchBeanDefinitionException extends BeansException {
 
     /**
      * 供兼容异常类型使用自定义错误信息创建按名称查询异常。
+     *
+     * @param beanName 查询使用的 Bean 名称
+     * @param message  详细错误信息
      */
     protected NoSuchBeanDefinitionException(
             String beanName,
@@ -71,6 +74,10 @@ public class NoSuchBeanDefinitionException extends BeansException {
 
     /**
      * 供兼容异常类型保留底层原因。
+     *
+     * @param beanName 查询使用的 Bean 名称
+     * @param message  详细错误信息
+     * @param cause    导致查询失败的底层异常
      */
     protected NoSuchBeanDefinitionException(
             String beanName,
