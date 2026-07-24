@@ -9,8 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link SingletonBeanRegistry} 接口的默认实现。
  *
  * <p>使用 {@link ConcurrentHashMap} 作为单例 Bean 的存储容器，
- * 提供单例 Bean 的注册、获取和存在性检查功能。Map 的单次读写是线程安全的，
- * 但当前版本尚未保证完整 Bean 创建流程的并发唯一性。
+ * 提供单例 Bean 的注册、获取和存在性检查功能。该注册表只负责缓存的单次读写安全；
+ * 完整 Bean 创建流程的并发唯一性由上层
+ * {@link io.github.youhong.minispring.beans.DefaultListableBeanFactory} 的创建监视器协调。
  *
  * <p><b>设计要点：</b>
  * <ul>
