@@ -6,7 +6,6 @@ import io.github.youhong.minispring.exception.BeansException;
 import io.github.youhong.minispring.scanner.ClassPathScanner;
 
 import java.beans.Introspector;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Set;
 
 /**

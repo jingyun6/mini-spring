@@ -31,26 +31,56 @@ public class BeanDefinition {
     public BeanDefinition() {
     }
 
+    /**
+     * 获取 Bean 对应的 Java 类型。
+     *
+     * @return Bean 类型；尚未设置时为 {@code null}
+     */
     public Class<?> getBeanClass() {
         return beanClass;
     }
 
+    /**
+     * 设置 Bean 对应的 Java 类型。
+     *
+     * @param beanClass Bean 类型
+     */
     public void setBeanClass(Class<?> beanClass) {
         this.beanClass = beanClass;
     }
 
+    /**
+     * 获取 Bean 在容器中的名称。
+     *
+     * @return Bean 名称；尚未设置时为 {@code null}
+     */
     public String getBeanName() {
         return beanName;
     }
 
+    /**
+     * 设置 Bean 在容器中的名称。
+     *
+     * @param beanName Bean 名称
+     */
     public void setBeanName(String beanName) {
         this.beanName = beanName;
     }
 
+    /**
+     * 判断该 Bean 是否使用单例作用域。
+     *
+     * @return 使用单例作用域时返回 {@code true}
+     */
     public boolean isSingleton() {
         return singleton;
     }
 
+    /**
+     * 设置该 Bean 是否使用单例作用域。
+     *
+     * @param singleton {@code true} 表示单例，{@code false} 表示每次获取时重新创建
+     */
     public void setSingleton(boolean singleton) {
         this.singleton = singleton;
     }
