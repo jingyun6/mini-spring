@@ -36,14 +36,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *     <li>{@code beanDefinitionMap} — Bean 名称到定义的映射，作为定义仓库的主存储</li>
  *     <li>{@code singletonObjects}（继承）— Bean 名称到单例实例的缓存</li>
+ *     <li>{@code threadLocalCreationPath} — 当前线程正在创建的 Bean 路径，用于检测循环依赖</li>
+ *     <li>{@code singletonCreationMonitor} — 串行化单例的检查、创建和注册流程</li>
  * </ul>
  *
  * <p><b>Bean 创建流程（{@link #getBean(String)}）：</b>
  * <ol>
+ *     <li>查询单例缓存，命中时直接返回</li>
  *     <li>从 {@code beanDefinitionMap} 查找对应的 {@link BeanDefinition}</li>
- *     <li>调用 {@link #createBean(BeanDefinition)} 完成实例化和字段依赖注入</li>
- *     <li>若为单例，将实例存入 {@code singletonObjects} 缓存</li>
- *     <li>返回可用的 Bean 实例</li>
+ *     <li>prototype Bean 直接创建；singleton Bean 进入创建监视器并再次检查缓存</li>
+ *     <li>记录当前线程的创建路径，检测循环依赖后完成实例化和字段注入</li>
+ *     <li>将创建完成的 singleton Bean 存入缓存并返回；prototype Bean 直接返回</li>
  * </ol>
  *
  * <p><b>典型使用场景：</b>
@@ -80,7 +83,25 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>使用 {@link ConcurrentHashMap} 确保并发场景下的线程安全。
      */
     private final Map<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
-    ThreadLocal<Deque<String>> threadLocalCreationPath = ThreadLocal.withInitial(ArrayDeque::new);
+
+    /**
+     * 当前线程的 Bean 创建路径。
+     *
+     * <p>同一线程递归解析依赖时共享一个有序路径，例如 {@code orderService -> userService}。
+     * 若待创建的 Bean 已经出现在路径中，说明当前依赖链形成闭环。路径在每次创建结束时
+     * 按栈顺序清理，并在线程路径为空时调用 {@link ThreadLocal#remove()}。</p>
+     */
+    private final ThreadLocal<Deque<String>> threadLocalCreationPath = ThreadLocal.withInitial(ArrayDeque::new);
+
+    /**
+     * 单例创建监视器。
+     *
+     * <p>保护单例 Bean 的二次缓存检查、实例化、依赖注入和缓存注册，使并发请求只创建
+     * 一个实例。缓存的首次查询位于监视器之外，已创建完成的单例无需参与锁竞争；
+     * prototype Bean 也不会进入该监视器。</p>
+     */
+    private final Object singletonCreationMonitor = new Object();
+
     /**
      * Bean 定义名称数组——维护所有已注册 Bean 的名称列表。
      *
@@ -183,16 +204,18 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>这是 IoC 容器最核心的方法，实现了"按名称获取 Bean"的契约。
      * 内部流程如下：
      * <ol>
-     *     <li><b>单例检查：</b>查询 {@code singletonObjects} 缓存，若命中则直接返回</li>
+     *     <li><b>快速单例检查：</b>查询 {@code singletonObjects} 缓存，若命中则直接返回</li>
      *     <li><b>定义查找：</b>从 {@code beanDefinitionMap} 获取对应的 {@link BeanDefinition}</li>
-     *     <li><b>实例创建：</b>调用 {@link #createBean(BeanDefinition)} 通过反射创建</li>
-     *     <li><b>缓存存储：</b>若为单例，将实例存入 {@code singletonObjects}</li>
+     *     <li><b>作用域分流：</b>prototype 直接创建；singleton 进入创建监视器</li>
+     *     <li><b>单例二次检查：</b>等待监视器期间其他线程可能已经完成创建，因此再次查询缓存</li>
+     *     <li><b>实例创建：</b>检测循环依赖后，通过反射实例化并完成字段注入</li>
+     *     <li><b>缓存存储：</b>将创建完成的 singleton Bean 注册到 {@code singletonObjects}</li>
      * </ol>
      *
      * @param beanName Bean 的唯一标识名称，不能为 {@code null}
      * @return 与指定名称关联的 Bean 实例
      * @throws BeanDefinitionNotFoundException 如果容器中不存在指定名称的 Bean 定义
-     * @throws BeanCreationException           如果 Bean 实例化或依赖注入过程中发生反射异常
+     * @throws BeanCreationException           如果检测到循环依赖，或实例化、依赖注入失败
      */
     @Override
     public Object getBean(String beanName) {
@@ -201,11 +224,46 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
         if (singleton != null) {
             return singleton;
         }
+
         // 2. 获取 BeanDefinition——不存在则抛出异常
         BeanDefinition beanDefinition = getBeanDefinition(beanName);
+        if (!beanDefinition.isSingleton()) {
+            return createBeanWithCycleDetection(beanName, beanDefinition);
+        }
+
+        synchronized (singletonCreationMonitor) {
+            // 等待监视器期间其他线程可能已经完成创建，因此必须再次查询单例缓存。
+            singleton = getSingleton(beanName);
+            if (singleton != null) {
+                return singleton;
+            }
+            Object bean = createBeanWithCycleDetection(beanName, beanDefinition);
+            // 将完整创建并完成依赖注入的实例注册到单例缓存。
+            registerSingleton(beanName, bean);
+            return bean;
+        }
+    }
+
+    /**
+     * 在当前线程的创建路径中检测循环依赖，并创建 Bean。
+     *
+     * <p>进入创建流程前将 Bean 名称追加到路径末尾；递归解析依赖时，如果同名 Bean
+     * 已经存在于路径中，则截取闭环部分并抛出包含完整路径的
+     * {@link BeanCreationException}，例如 {@code circularA -> circularB -> circularA}。</p>
+     *
+     * <p>路径清理位于 {@code finally} 中，因此实例化、依赖解析或字段注入失败都不会
+     * 污染后续创建。该方法同时用于 singleton 和 prototype Bean。</p>
+     *
+     * @param beanName       当前待创建的 Bean 名称
+     * @param beanDefinition 当前 Bean 的定义元数据
+     * @return 已完成实例化和依赖注入的 Bean
+     * @throws BeanCreationException 如果检测到循环依赖，或 Bean 创建过程失败
+     */
+    private Object createBeanWithCycleDetection(
+            String beanName,
+            BeanDefinition beanDefinition) {
         Object bean;
         Deque<String> creationPath = threadLocalCreationPath.get();
-
         if (creationPath.contains(beanName)) {
             List<String> circularPath = new ArrayList<>(creationPath);
             circularPath.add(beanName);
@@ -222,15 +280,11 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
         try {
             // 3. 通过反射创建 Bean 实例
             bean = createBean(beanDefinition);
-
-            // 4. 单例注册——存入缓存供后续复用
-            if (beanDefinition.isSingleton()) {
-                registerSingleton(beanName, bean);
-            }
             return bean;
         } finally {
-            if (!creationPath.isEmpty()) {
-                creationPath.removeLast();
+            creationPath.removeLast();
+            if (creationPath.isEmpty()) {
+                threadLocalCreationPath.remove();
             }
         }
     }
@@ -325,7 +379,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <ul>
      *     <li>仅支持字段注入，不支持构造器注入和 setter 注入</li>
      *     <li>不支持 {@code @Autowired(required=false)} 可选注入语义</li>
-     *     <li>不检测循环依赖，若存在循环引用将导致 {@link StackOverflowError}</li>
+     *     <li>能够检测并拒绝循环依赖，但尚未通过早期 Bean 引用解决循环依赖</li>
      * </ul>
      *
      * @param beanDefinition Bean 定义元数据，用于获取 Bean 的 Class 信息

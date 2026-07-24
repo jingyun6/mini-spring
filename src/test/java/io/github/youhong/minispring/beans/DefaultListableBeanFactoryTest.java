@@ -37,6 +37,7 @@ class DefaultListableBeanFactoryTest {
         beanFactory = new DefaultListableBeanFactory();
         WechatPaymentService.instanceCount = 0;
         AlipayPaymentService.instanceCount = 0;
+        ConcurrentSingleton.reset();
     }
 
     @Test
@@ -312,6 +313,58 @@ class DefaultListableBeanFactoryTest {
         );
     }
 
+    @Test
+    void shouldCreateSingletonOnlyOnceWhenRequestedConcurrently()
+            throws Exception {
+
+        int threadCount = 16;
+        registerBeanDefinition("concurrentSingleton", ConcurrentSingleton.class);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch ready = new CountDownLatch(threadCount);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < threadCount; i++) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    await(start);
+                    return beanFactory.getBean(ConcurrentSingleton.class);
+                }));
+            }
+
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            assertTrue(
+                    ConcurrentSingleton.firstConstructorEntered.await(
+                            5,
+                            TimeUnit.SECONDS
+                    )
+            );
+
+            // 给其他并发请求进入构造流程的机会。正确实现中它们应等待首个 Bean 创建完成。
+            ConcurrentSingleton.secondConstructorEntered.await(
+                    500,
+                    TimeUnit.MILLISECONDS
+            );
+        } finally {
+            ConcurrentSingleton.allowConstructionToFinish.countDown();
+        }
+
+        try {
+            Object expectedSingleton = futures.getFirst().get(10, TimeUnit.SECONDS);
+            for (Future<?> future : futures) {
+                assertSame(
+                        expectedSingleton,
+                        future.get(10, TimeUnit.SECONDS)
+                );
+            }
+            assertEquals(1, ConcurrentSingleton.instanceCount.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private void registerBeanDefinition(String beanName, Class<?> beanClass) {
         beanFactory.registerBeanDefinition(
                 beanName,
@@ -394,6 +447,32 @@ class DefaultListableBeanFactoryTest {
     }
 
     public static class LateBoundDependency {
+    }
+
+    public static class ConcurrentSingleton {
+
+        private static final AtomicInteger instanceCount = new AtomicInteger();
+        private static CountDownLatch firstConstructorEntered;
+        private static CountDownLatch secondConstructorEntered;
+        private static CountDownLatch allowConstructionToFinish;
+
+        static void reset() {
+            instanceCount.set(0);
+            firstConstructorEntered = new CountDownLatch(1);
+            secondConstructorEntered = new CountDownLatch(1);
+            allowConstructionToFinish = new CountDownLatch(1);
+        }
+
+        public ConcurrentSingleton() {
+            int currentInstanceCount = instanceCount.incrementAndGet();
+            if (currentInstanceCount == 1) {
+                firstConstructorEntered.countDown();
+            }
+            if (currentInstanceCount == 2) {
+                secondConstructorEntered.countDown();
+            }
+            await(allowConstructionToFinish);
+        }
     }
 
 }

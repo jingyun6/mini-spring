@@ -22,7 +22,8 @@ import java.lang.annotation.Target;
  * }</pre>
  *
  * <p>当前版本支持按照字段类型完成自动装配。容器会通过 BeanFactory 查找唯一匹配的
- * Bean 并写入字段；暂不支持限定符、构造器注入、方法注入和循环依赖。</p>
+ * Bean 并写入字段；暂不支持限定符、构造器注入和方法注入。循环依赖能够被检测并
+ * 拒绝，但尚不能通过早期 Bean 引用解决。</p>
  *
  * @author YouHong
  * @see Component
