@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "io.github.youhong"
-version = "0.1.0"
+version = project.findProperty("version") ?: "SNAPSHOT"
 
 java {
     toolchain {

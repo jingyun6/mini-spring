@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # 拉取代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 安装 JDK
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      # Gradle 打包
+      - name: Build
+        run: ./gradlew clean build -x test -Pversion=${{ github.ref_name }}
+
+      # 创建 Release 并上传文件
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/libs/*.jar
