@@ -11,8 +11,7 @@ import io.github.youhong.minispring.utils.StringUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -81,7 +80,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>使用 {@link ConcurrentHashMap} 确保并发场景下的线程安全。
      */
     private final Map<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
-
+    ThreadLocal<Deque<String>> threadLocalCreationPath = ThreadLocal.withInitial(ArrayDeque::new);
     /**
      * Bean 定义名称数组——维护所有已注册 Bean 的名称列表。
      *
@@ -202,19 +201,38 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
         if (singleton != null) {
             return singleton;
         }
-
         // 2. 获取 BeanDefinition——不存在则抛出异常
         BeanDefinition beanDefinition = getBeanDefinition(beanName);
+        Object bean;
+        Deque<String> creationPath = threadLocalCreationPath.get();
 
-        // 3. 通过反射创建 Bean 实例
-        Object bean = createBean(beanDefinition);
+        if (creationPath.contains(beanName)) {
+            List<String> circularPath = new ArrayList<>(creationPath);
+            circularPath.add(beanName);
 
-        // 4. 单例注册——存入缓存供后续复用
-        if (beanDefinition.isSingleton()) {
-            registerSingleton(beanName, bean);
+            int startIndex = circularPath.indexOf(beanName);
+            circularPath = circularPath.subList(startIndex, circularPath.size());
+            String path = String.join(" -> ", circularPath);
+
+            throw new BeanCreationException(beanName,
+                    "Circular dependency detected: " + path);
         }
 
-        return bean;
+        creationPath.addLast(beanName);
+        try {
+            // 3. 通过反射创建 Bean 实例
+            bean = createBean(beanDefinition);
+
+            // 4. 单例注册——存入缓存供后续复用
+            if (beanDefinition.isSingleton()) {
+                registerSingleton(beanName, bean);
+            }
+            return bean;
+        } finally {
+            if (!creationPath.isEmpty()) {
+                creationPath.removeLast();
+            }
+        }
     }
 
     /**
@@ -235,10 +253,10 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
-     * @throws IllegalArgumentException         如果 {@code requiredType} 为 {@code null}
-     * @throws NoSuchBeanDefinitionException    如果不存在匹配类型的 BeanDefinition
-     * @throws NoUniqueBeanDefinitionException  如果存在多个匹配类型的 BeanDefinition
-     * @throws BeanCreationException            如果唯一候选 Bean 的创建过程失败
+     * @throws IllegalArgumentException        如果 {@code requiredType} 为 {@code null}
+     * @throws NoSuchBeanDefinitionException   如果不存在匹配类型的 BeanDefinition
+     * @throws NoUniqueBeanDefinitionException 如果存在多个匹配类型的 BeanDefinition
+     * @throws BeanCreationException           如果唯一候选 Bean 的创建过程失败
      */
     @Override
     public <T> T getBean(Class<T> requiredType) {

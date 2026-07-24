@@ -1,5 +1,7 @@
 package io.github.youhong.minispring.beans;
 
+import io.github.youhong.minispring.annotation.Autowired;
+import io.github.youhong.minispring.exception.BeanCreationException;
 import io.github.youhong.minispring.exception.NoSuchBeanDefinitionException;
 import io.github.youhong.minispring.exception.NoUniqueBeanDefinitionException;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,6 +103,60 @@ class DefaultListableBeanFactoryTest {
         assertSame(paymentService, beanFactory.getBean("wechatPaymentService"));
         assertEquals(1, WechatPaymentService.instanceCount);
         assertEquals(0, AlipayPaymentService.instanceCount);
+    }
+
+    @Test
+    void shouldDetectCircularDependencyAndReportCreationPath() {
+        registerBeanDefinition("circularA", CircularA.class);
+        registerBeanDefinition("circularB", CircularB.class);
+
+        BeanCreationException exception = assertThrows(
+                BeanCreationException.class,
+                () -> beanFactory.getBean(CircularA.class)
+        );
+
+        assertEquals("circularA", exception.getBeanName());
+        assertTrue(
+                exception.getMessage().contains(
+                        "circularA -> circularB -> circularA"
+                )
+        );
+    }
+
+    @Test
+    void shouldDetectDirectSelfDependency() {
+        registerBeanDefinition("selfDependentBean", SelfDependentBean.class);
+
+        BeanCreationException exception = assertThrows(
+                BeanCreationException.class,
+                () -> beanFactory.getBean(SelfDependentBean.class)
+        );
+
+        assertEquals("selfDependentBean", exception.getBeanName());
+        assertTrue(
+                exception.getMessage().contains(
+                        "selfDependentBean -> selfDependentBean"
+                )
+        );
+    }
+
+    @Test
+    void shouldClearCreationPathAfterFailedDependencyResolution() {
+        registerBeanDefinition("lateBoundConsumer", LateBoundConsumer.class);
+
+        assertThrows(
+                NoSuchBeanDefinitionException.class,
+                () -> beanFactory.getBean(LateBoundConsumer.class)
+        );
+
+        registerBeanDefinition("lateBoundDependency", LateBoundDependency.class);
+
+        LateBoundConsumer consumer =
+                beanFactory.getBean(LateBoundConsumer.class);
+        LateBoundDependency dependency =
+                beanFactory.getBean(LateBoundDependency.class);
+
+        assertSame(dependency, consumer.getDependency());
     }
 
     @Test
@@ -307,6 +363,37 @@ class DefaultListableBeanFactoryTest {
         public AlipayPaymentService() {
             instanceCount++;
         }
+    }
+
+    public static class CircularA {
+
+        @Autowired
+        private CircularB circularB;
+    }
+
+    public static class CircularB {
+
+        @Autowired
+        private CircularA circularA;
+    }
+
+    public static class SelfDependentBean {
+
+        @Autowired
+        private SelfDependentBean self;
+    }
+
+    public static class LateBoundConsumer {
+
+        @Autowired
+        private LateBoundDependency dependency;
+
+        public LateBoundDependency getDependency() {
+            return dependency;
+        }
+    }
+
+    public static class LateBoundDependency {
     }
 
 }
