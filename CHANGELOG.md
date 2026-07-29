@@ -4,11 +4,31 @@
 
 ## [Unreleased]
 
+### Added
+
+- 唯一构造器的隐式构造器注入
+- 多构造器场景中的无参构造器回退规则
+- 构造器参数通过 `BeanFactory#getBean(Class)` 统一解析
+- 构造器缺失和构造器歧义的诊断性 `BeanCreationException`
+- 4 个构造器选择与注入契约测试，自动化测试总数增加到 30 个
+
+### Changed
+
+- `@Autowired` 可以声明在字段和构造器上
+- Bean 实例化拆分为构造器选择、参数解析和反射调用三个职责
+- 无参和有参构造器统一执行访问处理和反射调用
+
 ### Documentation
 
 - README 同步到 v0.3.0 的实际能力、限制和完成进度
 - 新增 ROADMAP，记录整体权重、版本课程拆分和验收标准
 - 固化每课完成后同步测试、README、ROADMAP、CHANGELOG 和版本状态的收尾流程
+- 同步 v0.4.0 第一课的构造器注入进度、限制、设计说明和下一课安排
+
+### Known limitations
+
+- 多个构造器尚不能通过 `@Autowired` 显式选择
+- 构造器和字段依赖仍只支持按类型选择，不支持 `@Primary` / `@Qualifier`
 
 ## [0.3.0] - 2026-07-24
 
