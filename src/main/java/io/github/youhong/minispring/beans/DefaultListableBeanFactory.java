@@ -9,8 +9,8 @@ import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
 import io.github.youhong.minispring.utils.Assert;
 import io.github.youhong.minispring.utils.StringUtils;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -45,7 +45,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *     <li>查询单例缓存，命中时直接返回</li>
  *     <li>从 {@code beanDefinitionMap} 查找对应的 {@link BeanDefinition}</li>
  *     <li>prototype Bean 直接创建；singleton Bean 进入创建监视器并再次检查缓存</li>
- *     <li>记录当前线程的创建路径，检测循环依赖后完成实例化和字段注入</li>
+ *     <li>记录当前线程的创建路径，选择构造器、解析参数并完成实例化和字段注入</li>
  *     <li>将创建完成的 singleton Bean 存入缓存并返回；prototype Bean 直接返回</li>
  * </ol>
  *
@@ -340,12 +340,14 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 通过反射创建 Bean 实例。
      *
-     * <p>当前实现仅支持无参构造器创建，后续可扩展支持：
+     * <p>实例化阶段先按规则选择构造器，再通过 {@link #getBean(Class)} 解析构造器参数；
+     * 实例化完成后继续执行字段填充。当前构造器选择规则为：
      * <ul>
-     *     <li>构造器注入（{@code @Autowired} 标注构造器）</li>
-     *     <li>静态工厂方法（{@code @Bean}）</li>
-     *     <li>实例工厂方法（{@code factory-bean / factory-method}）</li>
+     *     <li>只有一个构造器时直接选择</li>
+     *     <li>存在多个构造器时使用无参构造器回退</li>
+     *     <li>多个构造器且没有无参回退时，以明确的歧义异常失败</li>
      * </ul>
+     * 多构造器上的 {@link Autowired @Autowired} 显式选择规则将在后续课程实现。</p>
      *
      * @param beanDefinition Bean 定义元数据，包含待实例化的类信息
      * @return 已完成实例化和字段填充的 Bean 实例
@@ -355,7 +357,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
 
         Object bean;
         try {
-            // 获取无参构造器并创建实例
+            // 构造器选择、参数解析与反射调用组成实例化阶段；随后执行字段属性填充。
             bean = instantiateBean(beanDefinition);
             populateBean(beanDefinition, bean);
         } catch (ReflectiveOperationException exception) {
@@ -375,9 +377,10 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>沿 Bean 的继承层次逐级扫描声明字段，对标注了 {@link Autowired @Autowired} 的字段
      * 递归调用 {@link #getBean(Class)} 获取依赖实例，并通过反射完成字段注入。
      *
-     * <p><b>当前限制：</b>
+     * <p>构造器参数注入已经在实例化阶段完成，本方法只负责字段属性填充。
+     * 当前字段填充阶段的限制为：
      * <ul>
-     *     <li>仅支持字段注入，不支持构造器注入和 setter 注入</li>
+     *     <li>不支持 setter 方法注入</li>
      *     <li>不支持 {@code @Autowired(required=false)} 可选注入语义</li>
      *     <li>能够检测并拒绝循环依赖，但尚未通过早期 Bean 引用解决循环依赖</li>
      * </ul>
@@ -427,25 +430,85 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     }
 
     /**
-     * 通过反射调用无参构造器创建 Bean 实例。
+     * 按“选择构造器、解析参数、反射调用”三个步骤创建 Bean 实例。
      *
-     * <p>该方法是 Bean 生命周期的第一步（实例化）
-     * 获取无参构造器并调用 {@link java.lang.reflect.Constructor#newInstance(Object...)} 创建对象。
+     * <p>选择阶段只读取构造器元数据，不触发依赖创建；确定唯一构造器后，参数解析阶段
+     * 才会通过 BeanFactory 获取依赖。这样构造器歧义可以在没有实例化副作用的情况下失败。</p>
      *
-     * @param beanDefinition Bean 定义元数据，提供待实例化的目标类
-     * @return 通过无参构造器创建的 Bean 实例
-     * @throws NoSuchMethodException     如果目标类不存在无参构造器
-     * @throws InstantiationException    如果目标类是抽象类、接口、数组类型、基本类型或 {@code void}
-     * @throws IllegalAccessException    如果无参构造器不可访问（例如为 {@code private}）
-     * @throws InvocationTargetException 如果构造器内部抛出了异常
+     * @param beanDefinition Bean 定义元数据，提供 Bean 名称和待实例化类型
+     * @return 已完成构造器注入的 Bean 实例
+     * @throws ReflectiveOperationException 如果构造器无法访问、目标类型无法实例化或构造器执行失败
      */
-    private static Object instantiateBean(BeanDefinition beanDefinition) throws ReflectiveOperationException {
-        // 1. 获取目标类的 Class 对象
-        // 2. 获取该类声明的无参构造器（包含 private）
-        // 3. 通过构造器反射创建实例
-        return beanDefinition.getBeanClass()
-                .getDeclaredConstructor()
-                .newInstance();
+    private Object instantiateBean(BeanDefinition beanDefinition) throws ReflectiveOperationException {
+        Constructor<?> constructor = determineConstructor(beanDefinition);
+        Object[] arguments = resolveConstructorArguments(constructor);
+        return instantiateWithConstructor(constructor, arguments);
+    }
+
+    /**
+     * 根据当前构造器选择契约确定唯一的实例化入口。
+     *
+     * <p>唯一构造器优先；存在多个构造器时使用无参构造器回退；无法唯一确定时抛出
+     * 包含 Bean 名称和类型信息的 {@link BeanCreationException}。</p>
+     */
+    private Constructor<?> determineConstructor(BeanDefinition beanDefinition) {
+        Class<?> beanClass = beanDefinition.getBeanClass();
+        Constructor<?>[] declaredConstructors = beanClass.getDeclaredConstructors();
+        if (declaredConstructors.length == 0) {
+            throw new BeanCreationException(
+                    beanDefinition.getBeanName(),
+                    "No constructor is available on bean class '"
+                            + beanClass.getName()
+                            + "'"
+            );
+        }
+
+        if (declaredConstructors.length == 1) {
+            return declaredConstructors[0];
+        }
+
+        Optional<Constructor<?>> constructorOptional = Arrays
+                .stream(declaredConstructors)
+                .filter(obj -> obj.getParameterTypes().length == 0).findFirst();
+
+        if (constructorOptional.isPresent()) {
+            return constructorOptional.get();
+        }
+        throw new BeanCreationException(
+                beanDefinition.getBeanName(),
+                "Ambiguous constructors on bean class '"
+                        + beanClass.getName()
+                        + "': expected a single constructor or a no-argument fallback"
+        );
+    }
+
+    /**
+     * 按声明顺序解析所选构造器的全部参数。
+     *
+     * <p>每个参数统一委托给 {@link #getBean(Class)}，从而复用按类型候选选择、单例缓存、
+     * 异常体系和当前线程的循环依赖检测。</p>
+     */
+    private Object[] resolveConstructorArguments(
+            Constructor<?> constructor) {
+        Class<?>[] parameterTypes = constructor.getParameterTypes();
+        Object[] parameters = new Object[parameterTypes.length];
+        for (int i = 0; i < parameterTypes.length; i++) {
+            parameters[i] = getBean(parameterTypes[i]);
+        }
+        return parameters;
+    }
+
+    /**
+     * 使用已经选定的构造器和解析完成的实参执行反射实例化。
+     *
+     * <p>无参和有参构造器统一经过该出口，确保访问控制和反射异常行为保持一致。</p>
+     */
+    private Object instantiateWithConstructor(
+            Constructor<?> constructor,
+            Object[] arguments)
+            throws ReflectiveOperationException {
+        constructor.setAccessible(true);
+        return constructor.newInstance(arguments);
     }
 
     /**

@@ -6,11 +6,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 自动装配注解——标记需要由 IoC 容器注入依赖的字段。
+ * 自动装配注解——标记需要由 IoC 容器解析依赖的字段或构造器。
  *
- * <p>该注解作用于字段（Field）级别，在 Bean 实例化后的依赖注入阶段，
- * 容器会扫描被 {@code @Autowired} 标记的字段，并自动将容器中匹配类型的
- * Bean 注入其中。
+ * <p>标注字段时，容器会在 Bean 实例化后查找唯一匹配类型并写入字段；标注构造器时，
+ * 该注解用于表达显式的构造器注入意图。当前容器已经支持唯一构造器的隐式注入，
+ * 多构造器场景中的注解选择规则将在后续课程实现。</p>
  *
  * <p><b>使用示例：</b>
  * <pre>{@code
@@ -18,18 +18,22 @@ import java.lang.annotation.Target;
  * public class OrderService {
  *     @Autowired
  *     private UserService userService;  // 容器自动注入
+ *
+ *     public OrderService(OrderRepository orderRepository) {
+ *         // 唯一构造器无需显式标注 @Autowired
+ *     }
  * }
  * }</pre>
  *
- * <p>当前版本支持按照字段类型完成自动装配。容器会通过 BeanFactory 查找唯一匹配的
- * Bean 并写入字段；暂不支持限定符、构造器注入和方法注入。循环依赖能够被检测并
- * 拒绝，但尚不能通过早期 Bean 引用解决。</p>
+ * <p>字段和构造器参数均通过 {@code BeanFactory#getBean(Class)} 按类型解析，
+ * 因而复用唯一候选判断、单例缓存和循环依赖检测。当前暂不支持限定符、方法注入，
+ * 也尚未通过早期 Bean 引用解决循环依赖。</p>
  *
  * @author YouHong
  * @see Component
  * @since 1.0
  */
-@Target(ElementType.FIELD)
+@Target({ElementType.FIELD, ElementType.CONSTRUCTOR})
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Autowired {
 }
