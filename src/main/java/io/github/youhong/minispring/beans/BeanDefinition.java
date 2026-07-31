@@ -2,7 +2,7 @@ package io.github.youhong.minispring.beans;
 
 /**
  * <p>
- * Bean 定义元数据模型，描述一个 Bean 的类型、名称及作用域信息。
+ * Bean 定义元数据模型，描述一个 Bean 的类型、名称、作用域及候选优先级信息。
  * </p>
  * <p>
  * 该类是 mini-spring IoC 容器的基础数据载体，每个被 {@code @Component} 标注的类
@@ -16,14 +16,23 @@ package io.github.youhong.minispring.beans;
  */
 public class BeanDefinition {
 
-    /** Bean 对应的 Java 类，容器通过反射调用其构造器创建实例 */
+    /**
+     * Bean 对应的 Java 类，容器通过反射调用其构造器创建实例
+     */
     private Class<?> beanClass;
 
-    /** Bean 的唯一标识名称，默认由类名首字母小写生成 */
+    /**
+     * Bean 的唯一标识名称，默认由类名首字母小写生成
+     */
     private String beanName;
 
-    /** 是否为单例，默认为 {@code true}；后续可扩展支持原型（prototype）等其他作用域 */
+    /**
+     * 是否为单例，默认为 {@code true}；后续可扩展支持原型（prototype）等其他作用域
+     */
     private boolean singleton = true;
+
+    /** 是否为同类型多候选场景中的默认首选项，默认为 {@code false}。 */
+    private boolean primary;
 
     /**
      * 创建空的 Bean 定义实例，所有属性需通过 setter 后续设置。
@@ -83,5 +92,23 @@ public class BeanDefinition {
      */
     public void setSingleton(boolean singleton) {
         this.singleton = singleton;
+    }
+
+    /**
+     * 判断该定义是否为同类型候选中的首选项。
+     *
+     * @return 标记为 primary 时返回 {@code true}
+     */
+    public boolean isPrimary() {
+        return primary;
+    }
+
+    /**
+     * 设置该定义是否为同类型候选中的首选项。
+     *
+     * @param primary {@code true} 表示在多候选场景中优先选择该定义
+     */
+    public void setPrimary(boolean primary) {
+        this.primary = primary;
     }
 }

@@ -30,9 +30,10 @@ import java.util.Set;
  * userService.doSomething();
  * }</pre>
  *
- * <p><b>当前限制：</b>容器支持基于类型的 {@code @Autowired} 字段注入和唯一构造器的
- * 隐式注入，尚未处理限定符以及多个构造器之间的注解选择；循环依赖能够被检测并拒绝，
- * 但尚不能通过早期 Bean 引用解决。
+ * <p><b>当前限制：</b>容器支持基于类型的 {@code @Autowired} 字段注入、唯一构造器的
+ * 隐式注入和多构造器中的显式选择。BeanFactory 已支持 primary 元数据，但上下文扫描
+ * 尚未把组件类上的 {@code @Primary} 映射到 BeanDefinition，也不支持 {@code @Qualifier}；
+ * 循环依赖能够被检测并拒绝，但尚不能通过早期 Bean 引用解决。
  *
  * @author YouHong5286
  * @version 1.0.0
