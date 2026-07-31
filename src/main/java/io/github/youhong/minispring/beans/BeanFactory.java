@@ -59,14 +59,15 @@ public interface BeanFactory {
      * <p>使用泛型参数 {@code <T>} 进行类型安全的 Bean 获取，调用方无需
      * 手动进行类型转换。容器会自动推断目标类型并返回匹配的实例。
      *
-     * <p>当前版本要求按类型查询必须得到唯一候选者。没有候选者或存在多个候选者时，
-     * 容器会抛出明确的领域异常；后续可扩展 {@code @Primary} 或限定符选择规则。
+     * <p>容器先收集所有类型候选者。只有一个候选时直接选择；存在多个候选时，
+     * 继续使用 BeanDefinition 中的 primary 元数据决定默认候选。无候选、无 primary
+     * 或多 primary 冲突都会抛出明确的领域异常。
      *
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
      * @throws NoSuchBeanDefinitionException   如果不存在匹配类型的 Bean
-     * @throws NoUniqueBeanDefinitionException 如果存在多个匹配类型的 Bean
+     * @throws NoUniqueBeanDefinitionException 如果多个类型候选无法通过 primary 元数据唯一确定
      * @throws BeansException                  如果匹配 Bean 的创建过程失败
      */
     <T> T getBean(Class<T> requiredType);

@@ -12,13 +12,13 @@
 
 **开发中：v0.4.0 — 构造器注入与依赖选择**
 
-当前工作区在 v0.3.0 的基础上完成了构造器注入第一课，主链路演进为：
+当前工作区在 v0.3.0 的基础上完成了构造器注入前两课和 `@Primary` 元数据选择，主链路演进为：
 
 ```text
 扫描 @Component
 → 注册全部 BeanDefinition
 → 预实例化单例 Bean
-→ 选择唯一构造器或无参回退构造器
+→ 按 @Autowired 显式选择、唯一构造器或无参回退规则确定实例化入口
 → 按参数类型解析构造器依赖并反射实例化
 → 按类型填充 @Autowired 字段
 → 使用线程级创建路径检测循环依赖
@@ -53,17 +53,20 @@
 - `getBean(Class<T>)`：按类型安全获取 Bean
 - 使用 `Class#isAssignableFrom` 支持接口和父类匹配
 - 没有候选者时抛出 `NoSuchBeanDefinitionException`
-- 多个候选者时抛出 `NoUniqueBeanDefinitionException`
-- 唯一候选者确定后才创建 Bean，避免无意义的实例化副作用
+- 多个候选者时使用 BeanDefinition primary 元数据继续筛选
+- 多个类型候选中没有 primary 或存在多个 primary 时抛出 `NoUniqueBeanDefinitionException`
+- 候选决策得到唯一结果后才创建 Bean，避免无意义的实例化副作用
 - singleton Bean 创建后进入缓存，prototype Bean 每次获取时重新创建
 
 按类型查找遵循以下契约：
 
-| 候选数量 | 行为 |
-|---:|---|
-| 0 | 抛出 `NoSuchBeanDefinitionException` |
-| 1 | 创建或复用唯一 Bean |
-| 大于 1 | 抛出 `NoUniqueBeanDefinitionException` |
+| 类型候选数量 | primary 候选数量 | 行为 |
+|---:|---:|---|
+| 0 | — | 抛出 `NoSuchBeanDefinitionException` |
+| 1 | — | 创建或复用唯一 Bean |
+| 大于 1 | 0 | 报告全部类型候选者，抛出 `NoUniqueBeanDefinitionException` |
+| 大于 1 | 1 | 创建或复用唯一 primary Bean |
+| 大于 1 | 大于 1 | 仅报告冲突的 primary 候选者，抛出 `NoUniqueBeanDefinitionException` |
 
 ### 依赖注入
 
@@ -71,8 +74,13 @@
 - `@Autowired` 字段注入
 - 单一构造器无需注解即可完成隐式构造器注入
 - 多构造器场景存在无参构造器时使用无参回退
+- 多构造器场景中唯一的 `@Autowired` 构造器优先于无参回退
+- 多个构造器标注 `@Autowired` 时在参数解析前以明确异常失败
 - 构造器参数统一通过 `BeanFactory#getBean(Class)` 解析
 - 无法唯一选择构造器时抛出包含 Bean 名称和类型的明确异常
+- BeanDefinition 使用 primary 元数据表达同类型默认候选
+- 多候选中恰好一个 primary 时只创建该候选
+- 多个 primary 冲突时只报告冲突候选，且不实例化任何候选
 - 按字段类型解析依赖
 - 支持私有字段
 - 沿继承层次注入父类声明的字段
@@ -101,12 +109,14 @@
 - 组件扫描、字段注入、父类字段注入和单例复用集成测试
 - 互相依赖、直接自依赖和创建失败后的路径清理测试
 - 16 个并发请求只创建并返回同一个单例的测试
-- 构造器注解目标、唯一构造器注入、无参回退和歧义异常测试
-- 当前共 30 个自动化测试
+- 构造器注解目标、唯一构造器注入、无参回退和普通歧义异常测试
+- `@Autowired` 构造器优先级、唯一选择和多标注冲突测试
+- `@Primary` 注解契约、BeanDefinition 元数据和多候选选择测试
+- 当前共 37 个自动化测试
 
 ## 技术栈
 
-- Java 21
+- Java 25
 - Gradle 9.6.0（Kotlin DSL）
 - JUnit 5
 - 核心容器运行时无第三方依赖
@@ -115,7 +125,7 @@
 
 ### 环境要求
 
-- JDK 21 或更高版本
+- JDK 25
 - 不需要预先安装 Gradle，仓库包含 Gradle Wrapper
 
 ### 定义组件
@@ -163,7 +173,8 @@ Windows：
 io.github.youhong.minispring
 ├── annotation
 │   ├── Autowired
-│   └── Component
+│   ├── Component
+│   └── Primary
 ├── beans
 │   ├── BeanDefinition
 │   ├── BeanDefinitionRegistry
@@ -203,8 +214,9 @@ io.github.youhong.minispring
 
 ### 候选发现与实例化分离
 
-按类型查找时，容器先读取 BeanDefinition 的类型元数据并收集全部候选名称。只有候选唯一时，
-才进入 `getBean(String)` 创建流程。多候选错误不会提前执行构造器或污染单例缓存。
+按类型查找时，容器先读取 BeanDefinition 的类型和 primary 元数据，完成候选发现与
+唯一性决策。直接得到唯一类型候选，或从多候选中筛选出唯一 primary 后，才进入
+`getBean(String)` 创建流程。决策失败不会提前执行构造器或污染单例缓存。
 
 ### 循环依赖检测
 
@@ -231,15 +243,15 @@ io.github.youhong.minispring
 
 ## 当前限制
 
-- 支持唯一构造器的隐式注入，但多个构造器尚不能通过 `@Autowired` 显式选择
 - 不支持方法注入
-- 多候选场景尚无 `@Primary` / `@Qualifier` 选择规则
+- 组件扫描尚未把 `@Primary` 自动映射到 BeanDefinition，当前只能手动设置 primary 元数据
+- 多候选场景尚不支持 `@Qualifier` 精确选择
 - 能够检测并拒绝循环依赖，但尚未通过早期 Bean 引用解决
 - 不支持 Bean 初始化与销毁回调
 - 不支持 BeanPostProcessor / BeanFactoryPostProcessor
 - 类路径扫描仅支持文件目录，不支持 JAR
 - 不支持 `@Configuration`、`@Bean` 和 `@Value`
-- 多个构造器在没有显式选择规则时需要无参构造器作为回退
+- 多个构造器在没有 `@Autowired` 显式选择时需要无参构造器作为回退
 
 ## 后续路线
 
@@ -268,6 +280,8 @@ io.github.youhong.minispring
 | 2026-07-24 | v0.2.0：增加循环依赖检测、完整闭环路径和异常后状态清理 |
 | 2026-07-24 | v0.3.0：保证并发获取同名单例时只实例化一次 |
 | 2026-07-29 | v0.4.0 第一课：实现唯一构造器注入、无参回退、歧义诊断与实例化职责拆分 |
+| 2026-07-31 | v0.4.0 第二课：实现多构造器中的 `@Autowired` 显式选择与冲突检测 |
+| 2026-08-01 | v0.4.0 第三课：实现 `@Primary` 注解契约、BeanDefinition 元数据与候选选择 |
 
 ## 开发约定
 

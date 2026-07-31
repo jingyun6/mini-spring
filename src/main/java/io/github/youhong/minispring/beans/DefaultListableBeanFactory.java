@@ -11,7 +11,13 @@ import io.github.youhong.minispring.utils.StringUtils;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -292,30 +298,31 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 根据 Bean 类型获取 Bean 实例（类型安全版本）。
      *
-     * <p>该方法先根据 BeanDefinition 中的类型元数据收集全部候选者，再判断候选数量。
-     * 只有存在唯一候选者时才会调用 {@link #getBean(String)} 获取实例，避免为类型匹配
-     * 提前创建不需要的 Bean。
+     * <p>该方法先根据 BeanDefinition 中的类型元数据收集全部候选者，再使用
+     * primary 元数据完成多候选决策。只有决策得到唯一结果时才会调用
+     * {@link #getBean(String)} 获取实例，避免提前创建不需要的 Bean。
      *
      * <p><b>唯一性规则：</b>
      * <ul>
      *     <li>没有候选者时抛出 {@link NoSuchBeanDefinitionException}</li>
      *     <li>只有一个候选者时创建或复用该 Bean</li>
-     *     <li>存在多个候选者时抛出 {@link NoUniqueBeanDefinitionException}</li>
+     *     <li>多个候选中恰好一个 primary 时选择该候选</li>
+     *     <li>没有 primary 时报告全部候选；多个 primary 时只报告冲突的 primary 候选</li>
      * </ul>
-     * 后续可通过 {@code @Primary} 或 {@code @Qualifier} 扩展多候选选择策略。
+     * 候选发现和 primary 筛选都只读取 BeanDefinition 元数据；确定唯一名称后才进入
+     * {@link #getBean(String)} 创建流程，避免失败查询产生实例化副作用。
      *
      * @param <T>          期望的 Bean 类型
      * @param requiredType 期望的 Bean 类型 Class 对象，不能为 {@code null}
      * @return 与指定类型匹配的 Bean 实例
      * @throws IllegalArgumentException        如果 {@code requiredType} 为 {@code null}
      * @throws NoSuchBeanDefinitionException   如果不存在匹配类型的 BeanDefinition
-     * @throws NoUniqueBeanDefinitionException 如果存在多个匹配类型的 BeanDefinition
-     * @throws BeanCreationException           如果唯一候选 Bean 的创建过程失败
+     * @throws NoUniqueBeanDefinitionException 如果多个类型候选无法通过 primary 元数据唯一确定
+     * @throws BeanCreationException           如果选定 Bean 的创建过程失败
      */
     @Override
     public <T> T getBean(Class<T> requiredType) {
         Assert.notNull(requiredType, "requiredType must not be null");
-
         // 候选发现只读取 BeanDefinition 元数据，不在这一阶段创建 Bean 实例。
         List<BeanDefinition> candidates = beanDefinitionMap.values().stream()
                 .filter(beanDefinition -> requiredType.isAssignableFrom(beanDefinition.getBeanClass()))
@@ -325,10 +332,29 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
             throw new NoSuchBeanDefinitionException(requiredType);
         }
         if (candidates.size() > 1) {
-            List<String> candidateNames = candidates.stream()
-                    .map(BeanDefinition::getBeanName)
+            // BeanFactory 只消费结构化元数据，不在候选选择阶段解释组件类注解。
+            List<BeanDefinition> primaryCandidates = candidates.stream()
+                    .filter(BeanDefinition::isPrimary)
                     .toList();
-            throw new NoUniqueBeanDefinitionException(requiredType, candidateNames);
+            if (primaryCandidates.isEmpty()) {
+                List<String> candidateNames = candidates.stream()
+                        .map(BeanDefinition::getBeanName)
+                        .toList();
+                throw new NoUniqueBeanDefinitionException(requiredType, candidateNames);
+            } else if (primaryCandidates.size() == 1) {
+                // 确定唯一候选者后，统一复用按名称获取流程及其单例缓存。
+                BeanDefinition beanDefinition = primaryCandidates.getFirst();
+                Object bean = getBean(beanDefinition.getBeanName());
+                return requiredType.cast(bean);
+            } else {
+                List<String> primaryCandidateNames = primaryCandidates.stream()
+                        .map(BeanDefinition::getBeanName)
+                        .toList();
+                throw NoUniqueBeanDefinitionException.forPrimaryCandidates(
+                        requiredType,
+                        primaryCandidateNames
+                );
+            }
         }
 
         // 确定唯一候选者后，统一复用按名称获取流程及其单例缓存。
@@ -343,11 +369,12 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * <p>实例化阶段先按规则选择构造器，再通过 {@link #getBean(Class)} 解析构造器参数；
      * 实例化完成后继续执行字段填充。当前构造器选择规则为：
      * <ul>
-     *     <li>只有一个构造器时直接选择</li>
-     *     <li>存在多个构造器时使用无参构造器回退</li>
-     *     <li>多个构造器且没有无参回退时，以明确的歧义异常失败</li>
+     *     <li>恰好一个构造器标注 {@link Autowired @Autowired} 时显式选择该构造器</li>
+     *     <li>多个构造器标注 {@code @Autowired} 时，在解析参数前以明确异常失败</li>
+     *     <li>没有标注构造器时，依次使用唯一构造器和无参构造器回退规则</li>
+     *     <li>仍无法唯一选择时，以普通构造器歧义异常失败</li>
      * </ul>
-     * 多构造器上的 {@link Autowired @Autowired} 显式选择规则将在后续课程实现。</p>
+     * 显式选择优先于默认回退，保证开发者声明的注入意图不会被无参构造器覆盖。</p>
      *
      * @param beanDefinition Bean 定义元数据，包含待实例化的类信息
      * @return 已完成实例化和字段填充的 Bean 实例
@@ -448,8 +475,13 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 根据当前构造器选择契约确定唯一的实例化入口。
      *
-     * <p>唯一构造器优先；存在多个构造器时使用无参构造器回退；无法唯一确定时抛出
-     * 包含 Bean 名称和类型信息的 {@link BeanCreationException}。</p>
+     * <p>先检查 {@link Autowired @Autowired} 显式候选：唯一标注者优先，多个标注者立即失败；
+     * 没有标注者时再使用唯一构造器和无参构造器回退。所有选择都在参数解析前完成，
+     * 因此选择失败不会触发依赖 Bean 的实例化副作用。</p>
+     *
+     * @param beanDefinition 待选择实例化入口的 Bean 定义
+     * @return 按契约唯一确定的构造器
+     * @throws BeanCreationException 如果不存在构造器或无法唯一选择
      */
     private Constructor<?> determineConstructor(BeanDefinition beanDefinition) {
         Class<?> beanClass = beanDefinition.getBeanClass();
@@ -463,6 +495,60 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
             );
         }
 
+        List<Constructor<?>> autowiredConstructors = Arrays.stream(declaredConstructors)
+                .filter(obj -> obj.isAnnotationPresent(Autowired.class))
+                .toList();
+
+        if (!autowiredConstructors.isEmpty()) {
+            return determineAutowiredConstructor(
+                    beanDefinition.getBeanName(),
+                    autowiredConstructors
+            );
+        }
+
+        return determineFallbackConstructor(
+                beanDefinition,
+                declaredConstructors,
+                beanClass
+        );
+    }
+
+    /**
+     * 从显式标注的构造器中确定唯一候选，拒绝多个 {@code @Autowired} 冲突。
+     *
+     * @param beanName             待创建 Bean 的名称，用于异常诊断
+     * @param autowiredConstructors 已标注 {@code @Autowired} 的非空构造器列表
+     * @return 唯一的显式候选构造器
+     * @throws BeanCreationException 如果存在多个显式候选
+     */
+    private Constructor<?> determineAutowiredConstructor(
+            String beanName,
+            List<Constructor<?>> autowiredConstructors) {
+        if (autowiredConstructors.size() == 1) {
+            return autowiredConstructors.getFirst();
+        }
+        Class<?> beanClass = autowiredConstructors.getFirst().getDeclaringClass();
+        throw new BeanCreationException(
+                beanName,
+                "Multiple constructors annotated with @Autowired found on bean class '"
+                        + beanClass.getName()
+                        + "': expected exactly one"
+        );
+    }
+
+    /**
+     * 在没有显式标注构造器时应用唯一构造器和无参构造器回退规则。
+     *
+     * @param beanDefinition      待选择实例化入口的 Bean 定义
+     * @param declaredConstructors Bean 类声明的全部构造器
+     * @param beanClass            待实例化的 Bean 类型，用于异常诊断
+     * @return 唯一构造器，或多构造器中的无参回退构造器
+     * @throws BeanCreationException 如果多个构造器中不存在无参回退构造器
+     */
+    private Constructor<?> determineFallbackConstructor(
+            BeanDefinition beanDefinition,
+            Constructor<?>[] declaredConstructors,
+            Class<?> beanClass) {
         if (declaredConstructors.length == 1) {
             return declaredConstructors[0];
         }
@@ -478,7 +564,8 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
                 beanDefinition.getBeanName(),
                 "Ambiguous constructors on bean class '"
                         + beanClass.getName()
-                        + "': expected a single constructor or a no-argument fallback"
+                        + "': expected exactly one @Autowired constructor, "
+                        + "a single declared constructor, or a no-argument fallback"
         );
     }
 
@@ -487,6 +574,10 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      *
      * <p>每个参数统一委托给 {@link #getBean(Class)}，从而复用按类型候选选择、单例缓存、
      * 异常体系和当前线程的循环依赖检测。</p>
+     *
+     * @param constructor 已经唯一选定的构造器
+     * @return 与构造器形参按顺序一一对应的实参数组
+     * @throws BeansException 如果任一构造器依赖无法唯一解析或创建
      */
     private Object[] resolveConstructorArguments(
             Constructor<?> constructor) {
@@ -502,6 +593,11 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * 使用已经选定的构造器和解析完成的实参执行反射实例化。
      *
      * <p>无参和有参构造器统一经过该出口，确保访问控制和反射异常行为保持一致。</p>
+     *
+     * @param constructor 已经唯一选定的构造器
+     * @param arguments   与构造器形参顺序一致的实参数组
+     * @return 反射创建的 Bean 实例
+     * @throws ReflectiveOperationException 如果构造器无法访问、调用失败或目标类型无法实例化
      */
     private Object instantiateWithConstructor(
             Constructor<?> constructor,
