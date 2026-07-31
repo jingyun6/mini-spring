@@ -293,6 +293,16 @@ io.github.youhong.minispring
 4. 更新 CHANGELOG，记录新增能力、行为变化和已知限制
 5. 核对版本号、Git 状态和发布标签
 
+达到版本里程碑后，可使用发布脚本运行完整测试、创建带说明的 tag 并推送到远程：
+
+```bash
+./scripts/release-tag.sh --dry-run v0.5.0
+./scripts/release-tag.sh v0.5.0
+```
+
+默认推送到 `origin`，也可使用 `--remote <name>` 指定其他远程。脚本要求工作区干净，
+且当前提交已经推送到同名远程分支，以避免发布标签指向未推送的代码。
+
 整体规划详见 [ROADMAP.md](ROADMAP.md)，版本变更详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## License
