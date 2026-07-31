@@ -61,6 +61,7 @@ class BeanDefinitionExceptionTest {
                 List.of("alipayPaymentService", "wechatPaymentService"),
                 exception.getBeanNames()
         );
+        assertTrue(exception.getMessage().contains("matching candidates"));
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> exception.getBeanNames().add("anotherService")
