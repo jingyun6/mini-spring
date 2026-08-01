@@ -1,10 +1,8 @@
 package io.github.youhong.minispring.beans;
 
 import io.github.youhong.minispring.annotation.Autowired;
-import io.github.youhong.minispring.exception.BeanCreationException;
-import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
-import io.github.youhong.minispring.exception.NoSuchBeanDefinitionException;
-import io.github.youhong.minispring.exception.NoUniqueBeanDefinitionException;
+import io.github.youhong.minispring.annotation.Qualifier;
+import io.github.youhong.minispring.exception.*;
 import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
 import io.github.youhong.minispring.utils.Assert;
 import io.github.youhong.minispring.utils.StringUtils;
@@ -402,7 +400,8 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * 对已创建的 Bean 实例进行属性填充（依赖注入）。
      *
      * <p>沿 Bean 的继承层次逐级扫描声明字段，对标注了 {@link Autowired @Autowired} 的字段
-     * 递归调用 {@link #getBean(Class)} 获取依赖实例，并通过反射完成字段注入。
+     * 委托 {@link #resolveFieldDependency(Field)} 解析依赖，并通过反射完成字段注入。
+     * 字段存在 {@link Qualifier @Qualifier} 时按名称精确选择，否则按类型选择候选。</p>
      *
      * <p>构造器参数注入已经在实例化阶段完成，本方法只负责字段属性填充。
      * 当前字段填充阶段的限制为：
@@ -433,6 +432,8 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      * 注入指定类直接声明的 {@code @Autowired} 字段。
      *
      * <p>传入的 Bean 可以是该声明类的子类实例；反射仍可以写入实例中由父类声明的字段。
+     * 本方法只负责识别 {@code @Autowired} 注入点和写入字段，候选解析由
+     * {@link #resolveFieldDependency(Field)} 独立完成。</p>
      *
      * @param bean           待填充属性的 Bean 实例
      * @param declaringClass 当前正在检查的字段声明类
@@ -446,14 +447,32 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
             if (!field.isAnnotationPresent(Autowired.class)) {
                 continue;
             }
-
-            // 按字段类型从容器获取依赖 Bean（递归触发依赖的创建）
-            Object dependency = getBean(field.getType());
+            Object dependency = resolveFieldDependency(field);
 
             // 突破 private 访问限制，通过反射注入依赖
             field.setAccessible(true);
             field.set(bean, dependency);
         }
+    }
+
+    /**
+     * 根据字段注入点元数据解析依赖实例。
+     *
+     * <p>字段存在 {@link Qualifier @Qualifier} 时，显式 Bean 名称具有最高优先级，
+     * 直接委托 {@link #getBean(String)} 获取依赖；否则委托 {@link #getBean(Class)}
+     * 按类型应用唯一候选和 primary 选择规则。两条路径都复用单例缓存、创建流程和
+     * 循环依赖检测。</p>
+     *
+     * @param field 已标注 {@code @Autowired} 的字段注入点
+     * @return 与字段要求匹配的依赖实例
+     * @throws BeansException 如果指定名称不存在，或按类型无法唯一解析和创建依赖
+     */
+    private Object resolveFieldDependency(Field field) {
+        Qualifier qualifier = field.getAnnotation(Qualifier.class);
+        if (qualifier != null) {
+            return getBean(qualifier.value());
+        }
+        return getBean(field.getType());
     }
 
     /**
@@ -516,7 +535,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 从显式标注的构造器中确定唯一候选，拒绝多个 {@code @Autowired} 冲突。
      *
-     * @param beanName             待创建 Bean 的名称，用于异常诊断
+     * @param beanName              待创建 Bean 的名称，用于异常诊断
      * @param autowiredConstructors 已标注 {@code @Autowired} 的非空构造器列表
      * @return 唯一的显式候选构造器
      * @throws BeanCreationException 如果存在多个显式候选
@@ -539,7 +558,7 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 在没有显式标注构造器时应用唯一构造器和无参构造器回退规则。
      *
-     * @param beanDefinition      待选择实例化入口的 Bean 定义
+     * @param beanDefinition       待选择实例化入口的 Bean 定义
      * @param declaredConstructors Bean 类声明的全部构造器
      * @param beanClass            待实例化的 Bean 类型，用于异常诊断
      * @return 唯一构造器，或多构造器中的无参回退构造器

@@ -8,14 +8,16 @@
 
 ## 当前版本
 
-**已发布版本：v0.3.0 — IoC 容器健壮性增强版**
+**已发布版本：v0.5.0 — 显式构造器选择与 Primary 候选**
 
-**开发中：v0.4.0 — 构造器注入与依赖选择**
+**开发中：v0.6.0 — 依赖选择整合**
 
-当前工作区在 v0.3.0 的基础上完成了构造器注入前两课和 `@Primary` 元数据选择，主链路演进为：
+当前工作区在 v0.5.0 的基础上完成了 `@Primary` 组件扫描映射，
+正在向 `@Qualifier` 精确候选选择演进。当前主链路为：
 
 ```text
 扫描 @Component
+→ 把 @Primary 转换为 BeanDefinition primary 元数据
 → 注册全部 BeanDefinition
 → 预实例化单例 Bean
 → 按 @Autowired 显式选择、唯一构造器或无参回退规则确定实例化入口
@@ -27,7 +29,7 @@
 → 按名称或类型获取 Bean
 ```
 
-当前已经完成 3/8 个版本里程碑，v0.4.0 正在开发。本阶段的学习重点是理解以下分层与协作关系：
+当前已经完成 5/10 个版本里程碑，v0.6.0 正在开发。本阶段的学习重点是理解以下分层与协作关系：
 
 - `BeanDefinition` 描述“如何创建 Bean”
 - `BeanDefinitionRegistry` 管理 Bean 元数据
@@ -72,6 +74,8 @@
 
 - `@Component` 组件发现
 - `@Autowired` 字段注入
+- `@Qualifier` 可标注字段和构造器参数，并强制显式声明目标 Bean 名称
+- 字段 `@Qualifier` 按名称精确选择候选，优先于类型候选中的 primary
 - 单一构造器无需注解即可完成隐式构造器注入
 - 多构造器场景存在无参构造器时使用无参回退
 - 多构造器场景中唯一的 `@Autowired` 构造器优先于无参回退
@@ -79,12 +83,13 @@
 - 构造器参数统一通过 `BeanFactory#getBean(Class)` 解析
 - 无法唯一选择构造器时抛出包含 Bean 名称和类型的明确异常
 - BeanDefinition 使用 primary 元数据表达同类型默认候选
-- 多候选中恰好一个 primary 时只创建该候选
-- 多个 primary 冲突时只报告冲突候选，且不实例化任何候选
-- 按字段类型解析依赖
+- 组件扫描会把类上的 `@Primary` 自动映射为 BeanDefinition 元数据
+- 多候选中恰好一个 primary 时，按类型查询和依赖解析选择该候选
+- 多个 primary 冲突时只报告冲突候选，候选决策失败本身不触发新的实例化
+- 字段有 `@Qualifier` 时按名称解析，否则按类型解析
 - 支持私有字段
 - 沿继承层次注入父类声明的字段
-- 依赖解析统一复用 `BeanFactory#getBean(Class)`
+- 依赖解析统一复用 BeanFactory 的按名称或按类型获取流程
 - 检测直接自依赖和多个 Bean 形成的循环依赖
 - 循环依赖异常包含完整闭环路径，例如 `a -> b -> a`
 
@@ -112,7 +117,10 @@
 - 构造器注解目标、唯一构造器注入、无参回退和普通歧义异常测试
 - `@Autowired` 构造器优先级、唯一选择和多标注冲突测试
 - `@Primary` 注解契约、BeanDefinition 元数据和多候选选择测试
-- 当前共 37 个自动化测试
+- `@Primary` 组件扫描、按类型查询和构造器依赖集成测试
+- `@Qualifier` 目标位置、运行时保留和强制 Bean 名称契约测试
+- 字段 `@Qualifier` 覆盖 primary 与未标注字段继续选择 primary 的测试
+- 当前共 43 个自动化测试
 
 ## 技术栈
 
@@ -218,6 +226,10 @@ io.github.youhong.minispring
 唯一性决策。直接得到唯一类型候选，或从多候选中筛选出唯一 primary 后，才进入
 `getBean(String)` 创建流程。决策失败不会提前执行构造器或污染单例缓存。
 
+primary 只影响“按类型查询或注入时选择谁”，不决定 Bean 的创建时机。直接使用
+BeanFactory 按需查询时，只会创建选定的候选；当前 ApplicationContext 在启动时会
+预实例化全部 singleton，因此未选中的普通候选仍可能被创建。
+
 ### 循环依赖检测
 
 容器使用线程级有序路径记录当前调用链中的 Bean。准备创建的 Bean 已经存在于路径中时，
@@ -244,8 +256,7 @@ io.github.youhong.minispring
 ## 当前限制
 
 - 不支持方法注入
-- 组件扫描尚未把 `@Primary` 自动映射到 BeanDefinition，当前只能手动设置 primary 元数据
-- 多候选场景尚不支持 `@Qualifier` 精确选择
+- 字段已支持 `@Qualifier` 精确选择，构造器参数尚未接入该规则
 - 能够检测并拒绝循环依赖，但尚未通过早期 Bean 引用解决
 - 不支持 Bean 初始化与销毁回调
 - 不支持 BeanPostProcessor / BeanFactoryPostProcessor
@@ -256,15 +267,17 @@ io.github.youhong.minispring
 ## 后续路线
 
 详细的版本规划、工作量权重、课程拆分和验收标准见 [ROADMAP.md](ROADMAP.md)。
-当前完成 3/8 个版本里程碑，按里程碑数量为 37.5%，按工作量加权为 30%。
+当前完成 5/10 个版本里程碑，按里程碑数量为 50%，按工作量加权为 40%。
 
 - [x] 循环依赖检测，避免以 `StackOverflowError` 失败（v0.2.0）
 - [x] 单例创建的并发唯一性（v0.3.0）
-- [ ] 构造器注入和依赖选择规则
-- [ ] Bean 生命周期与 `BeanPostProcessor`
-- [ ] 三级缓存和早期 Bean 引用
-- [ ] JDK 动态代理与 AOP
-- [ ] Environment、资源加载和事件发布
+- [x] 基础构造器注入（v0.4.0）
+- [x] 显式构造器选择与 Primary 候选（v0.5.0）
+- [ ] `@Primary` 扫描映射与 `@Qualifier` 精确选择（v0.6.0）
+- [ ] Bean 生命周期与 `BeanPostProcessor`（v0.7.0）
+- [ ] 三级缓存和早期 Bean 引用（v0.8.0）
+- [ ] JDK 动态代理与 AOP（v0.9.0）
+- [ ] Environment、资源加载和事件发布（v0.10.0）
 
 ## 开发记录
 
@@ -279,9 +292,12 @@ io.github.youhong.minispring
 | 2026-07-24 | 完善 BeanDefinition 注册契约、并发一致性测试和首版发布文档 |
 | 2026-07-24 | v0.2.0：增加循环依赖检测、完整闭环路径和异常后状态清理 |
 | 2026-07-24 | v0.3.0：保证并发获取同名单例时只实例化一次 |
-| 2026-07-29 | v0.4.0 第一课：实现唯一构造器注入、无参回退、歧义诊断与实例化职责拆分 |
-| 2026-07-31 | v0.4.0 第二课：实现多构造器中的 `@Autowired` 显式选择与冲突检测 |
-| 2026-08-01 | v0.4.0 第三课：实现 `@Primary` 注解契约、BeanDefinition 元数据与候选选择 |
+| 2026-07-29 | v0.4.0：实现唯一构造器注入、无参回退、歧义诊断与实例化职责拆分 |
+| 2026-07-31 | v0.5.0 第一课：实现多构造器中的 `@Autowired` 显式选择与冲突检测 |
+| 2026-08-01 | v0.5.0 第二课：实现 `@Primary` 注解契约、BeanDefinition 元数据与候选选择 |
+| 2026-08-01 | v0.6.0 第一课：将组件类 `@Primary` 自动映射到 BeanDefinition 元数据 |
+| 2026-08-01 | v0.6.0 第二课：定义 `@Qualifier` 字段与构造器参数注入点契约 |
+| 2026-08-01 | v0.6.0 第三课：实现字段 `@Qualifier` 精确选择并覆盖 primary 默认候选 |
 
 ## 开发约定
 
@@ -296,8 +312,8 @@ io.github.youhong.minispring
 达到版本里程碑后，可使用发布脚本运行完整测试、创建带说明的 tag 并推送到远程：
 
 ```bash
-./scripts/release-tag.sh --dry-run v0.5.0
-./scripts/release-tag.sh v0.5.0
+./scripts/release-tag.sh --dry-run v0.6.0
+./scripts/release-tag.sh v0.6.0
 ```
 
 默认推送到 `origin`，也可使用 `--remote <name>` 指定其他远程。脚本要求工作区干净，
