@@ -8,19 +8,26 @@
 
 - 组件扫描阶段自动把类上的 `@Primary` 转换为 BeanDefinition 元数据
 - 2 个 `@Primary` 扫描与构造器依赖集成测试，自动化测试总数增加到 39 个
+- `@Qualifier` 运行时字段与构造器参数注入点注解，强制显式声明 Bean 名称
+- 2 个 `@Qualifier` 注解契约测试，自动化测试总数增加到 41 个
+- 字段 `@Qualifier` 按 Bean 名称精确选择候选，并优先于 primary 默认候选
+- 2 个字段 qualifier 选择与 primary 回归测试，自动化测试总数增加到 43 个
 
 ### Changed
 
 - ApplicationContext 负责把组件类注解翻译为结构化元数据，BeanFactory 保持与注解来源解耦
+- 字段遍历与字段依赖解析分离；有 qualifier 时按名称获取，否则按类型选择
 
 ### Documentation
 
 - README、ROADMAP 和 CHANGELOG 同步到已发布的 v0.5.0 与开发中的 v0.6.0
 - 同步 v0.6.0 第一课的 primary 扫描映射、集成链路和测试进度
+- 同步 v0.6.0 第二课的 qualifier 注入点契约和测试进度
+- 同步 v0.6.0 第三课的字段 qualifier 精确选择、职责边界和测试进度
 
 ### Known limitations
 
-- 构造器和字段依赖仍不支持 `@Qualifier` 精确选择
+- 字段已支持 `@Qualifier` 精确选择，构造器参数尚未接入该规则
 
 ## [0.5.0] - 2026-08-01
 
