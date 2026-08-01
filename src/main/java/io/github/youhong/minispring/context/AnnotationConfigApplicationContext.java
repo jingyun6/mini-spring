@@ -1,5 +1,6 @@
 package io.github.youhong.minispring.context;
 
+import io.github.youhong.minispring.annotation.Primary;
 import io.github.youhong.minispring.beans.BeanDefinition;
 import io.github.youhong.minispring.beans.DefaultListableBeanFactory;
 import io.github.youhong.minispring.exception.BeansException;
@@ -19,7 +20,8 @@ import java.util.Set;
  * <p><b>启动流程（refresh）：</b>
  * <ol>
  *     <li><b>扫描：</b>通过 {@link ClassPathScanner} 扫描指定包下所有 {@code @Component} 类</li>
- *     <li><b>注册：</b>为每个类创建 {@link BeanDefinition}，注册到 {@link DefaultListableBeanFactory}</li>
+ *     <li><b>注册：</b>为每个类创建 {@link BeanDefinition}，同时转换 {@code @Primary}
+ *     等配置元数据，再注册到 {@link DefaultListableBeanFactory}</li>
  *     <li><b>预实例化：</b>调用 {@code getBean()} 触发所有单例 Bean 的提前创建</li>
  * </ol>
  *
@@ -31,8 +33,8 @@ import java.util.Set;
  * }</pre>
  *
  * <p><b>当前限制：</b>容器支持基于类型的 {@code @Autowired} 字段注入、唯一构造器的
- * 隐式注入和多构造器中的显式选择。BeanFactory 已支持 primary 元数据，但上下文扫描
- * 尚未把组件类上的 {@code @Primary} 映射到 BeanDefinition，也不支持 {@code @Qualifier}；
+ * 隐式注入、多构造器中的显式选择，以及组件类 {@code @Primary} 到
+ * BeanDefinition 元数据的自动映射。当前仍不支持 {@code @Qualifier}；
  * 循环依赖能够被检测并拒绝，但尚不能通过早期 Bean 引用解决。
  *
  * @author YouHong5286
@@ -79,7 +81,8 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
     /**
      * 扫描指定包下的组件，并将扫描结果转换为 BeanDefinition 注册到 BeanFactory。
      *
-     * <p>该阶段只处理 Bean 元数据，不创建任何 Bean 实例。完成全部定义注册后，
+     * <p>该阶段会把组件类型、默认名称和 {@link Primary @Primary} 等配置注解
+     * 转换为结构化 BeanDefinition 元数据，但不创建任何 Bean 实例。完成全部定义注册后，
      * {@link #preInstantiateSingletons()} 才会进入实例创建阶段。</p>
      *
      * @param basePackage 待扫描的基础包路径
@@ -94,6 +97,8 @@ public class AnnotationConfigApplicationContext implements ApplicationContext {
             BeanDefinition beanDefinition = new BeanDefinition();
             beanDefinition.setBeanName(beanName);
             beanDefinition.setBeanClass(clazz);
+            // 在注册边界把配置注解转换为元数据，BeanFactory 无需感知注解来源。
+            beanDefinition.setPrimary(clazz.isAnnotationPresent(Primary.class));
             beanFactory.registerBeanDefinition(beanName, beanDefinition);
         }
     }

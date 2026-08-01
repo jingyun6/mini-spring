@@ -6,41 +6,69 @@
 
 ### Added
 
+- 组件扫描阶段自动把类上的 `@Primary` 转换为 BeanDefinition 元数据
+- 2 个 `@Primary` 扫描与构造器依赖集成测试，自动化测试总数增加到 39 个
+
+### Changed
+
+- ApplicationContext 负责把组件类注解翻译为结构化元数据，BeanFactory 保持与注解来源解耦
+
+### Documentation
+
+- README、ROADMAP 和 CHANGELOG 同步到已发布的 v0.5.0 与开发中的 v0.6.0
+- 同步 v0.6.0 第一课的 primary 扫描映射、集成链路和测试进度
+
+### Known limitations
+
+- 构造器和字段依赖仍不支持 `@Qualifier` 精确选择
+
+## [0.5.0] - 2026-08-01
+
+显式构造器选择与 Primary 候选版本。
+
+### Added
+
+- 多构造器场景中唯一 `@Autowired` 构造器的显式选择
+- 多个 `@Autowired` 构造器的冲突检测，且失败前不解析构造器参数
+- `@Primary` 运行时类型注解和 BeanDefinition primary 元数据
+- 多候选场景中的唯一 primary 选择和多 primary 冲突诊断
+- 7 个新增契约测试，自动化测试总数增加到 37 个
+- 语义化版本标签创建与推送脚本
+
+### Changed
+
+- 显式 `@Autowired` 构造器的优先级高于无参回退
+- BeanFactory 只读取 BeanDefinition primary 元数据，确定唯一候选后才创建 Bean
+- 多 primary 异常消息明确标识 primary 冲突，只报告相互冲突的候选
+
+### Known limitations
+
+- 组件扫描尚未把 `@Primary` 自动映射到 BeanDefinition
+- 构造器和字段依赖仍不支持 `@Qualifier` 精确选择
+
+## [0.4.0] - 2026-07-30
+
+基础构造器注入版本。
+
+### Added
+
 - 唯一构造器的隐式构造器注入
 - 多构造器场景中的无参构造器回退规则
 - 构造器参数通过 `BeanFactory#getBean(Class)` 统一解析
 - 构造器缺失和构造器歧义的诊断性 `BeanCreationException`
-- 多构造器场景中唯一 `@Autowired` 构造器的显式选择
-- 多个 `@Autowired` 构造器的冲突检测，且失败前不解析构造器参数
-- 7 个构造器选择与注入契约测试，自动化测试总数增加到 33 个
-- `@Primary` 运行时类型注解和 BeanDefinition primary 元数据
-- 多候选场景中的唯一 primary 选择和多 primary 冲突检测
-- 4 个 primary 契约测试，自动化测试总数增加到 37 个
+- 4 个构造器选择与注入契约测试，自动化测试总数增加到 30 个
 
 ### Changed
 
 - `@Autowired` 可以声明在字段和构造器上
 - Bean 实例化拆分为构造器选择、参数解析和反射调用三个职责
 - 无参和有参构造器统一执行访问处理和反射调用
-- 构造器选择遵循“显式 `@Autowired` 优先于默认无参回退”的优先级
-- 普通构造器歧义异常明确提示 `@Autowired`、唯一构造器和无参回退三种可用规则
-- BeanFactory 只读取 BeanDefinition primary 元数据，确定唯一候选后才创建 Bean
-- 多 primary 异常消息明确标识 primary 冲突，避免把冲突数量误解为全部类型候选数量
-
-### Documentation
-
-- README 同步到 v0.3.0 的实际能力、限制和完成进度
-- 新增 ROADMAP，记录整体权重、版本课程拆分和验收标准
-- 固化每课完成后同步测试、README、ROADMAP、CHANGELOG 和版本状态的收尾流程
-- 同步 v0.4.0 第一课的构造器注入进度、限制、设计说明和下一课安排
-- 同步 v0.4.0 第二课的显式构造器选择、冲突诊断和测试进度
-- 同步 v0.4.0 第三课的 primary 元数据选择、能力边界和测试进度
-- 更新按类型候选决策表、Java 25 环境要求和 primary 冲突异常语义
+- Java Toolchain 从 21 升级到 25
 
 ### Known limitations
 
-- 组件扫描尚未把 `@Primary` 注解自动映射为 BeanDefinition 元数据
-- 构造器和字段依赖仍不支持 `@Qualifier` 精确选择
+- 多构造器尚不支持通过 `@Autowired` 显式选择
+- 多候选依赖尚不支持 `@Primary` 或 `@Qualifier`
 
 ## [0.3.0] - 2026-07-24
 
