@@ -76,11 +76,12 @@
 - `@Autowired` 字段注入
 - `@Qualifier` 可标注字段和构造器参数，并强制显式声明目标 Bean 名称
 - 字段 `@Qualifier` 按名称精确选择候选，优先于类型候选中的 primary
+- 构造器参数 `@Qualifier` 同样按名称精确选择候选并覆盖 primary
 - 单一构造器无需注解即可完成隐式构造器注入
 - 多构造器场景存在无参构造器时使用无参回退
 - 多构造器场景中唯一的 `@Autowired` 构造器优先于无参回退
 - 多个构造器标注 `@Autowired` 时在参数解析前以明确异常失败
-- 构造器参数统一通过 `BeanFactory#getBean(Class)` 解析
+- 构造器参数有 `@Qualifier` 时按名称解析，否则按类型解析
 - 无法唯一选择构造器时抛出包含 Bean 名称和类型的明确异常
 - BeanDefinition 使用 primary 元数据表达同类型默认候选
 - 组件扫描会把类上的 `@Primary` 自动映射为 BeanDefinition 元数据
@@ -120,7 +121,8 @@
 - `@Primary` 组件扫描、按类型查询和构造器依赖集成测试
 - `@Qualifier` 目标位置、运行时保留和强制 Bean 名称契约测试
 - 字段 `@Qualifier` 覆盖 primary 与未标注字段继续选择 primary 的测试
-- 当前共 43 个自动化测试
+- 构造器参数 `@Qualifier` 覆盖 primary 与未标注参数继续选择 primary 的测试
+- 当前共 45 个自动化测试
 
 ## 技术栈
 
@@ -256,7 +258,7 @@ BeanFactory 按需查询时，只会创建选定的候选；当前 ApplicationCo
 ## 当前限制
 
 - 不支持方法注入
-- 字段已支持 `@Qualifier` 精确选择，构造器参数尚未接入该规则
+- 字段和构造器参数已支持 `@Qualifier` 精确选择，但两者的依赖解析逻辑尚未统一
 - 能够检测并拒绝循环依赖，但尚未通过早期 Bean 引用解决
 - 不支持 Bean 初始化与销毁回调
 - 不支持 BeanPostProcessor / BeanFactoryPostProcessor
@@ -298,6 +300,7 @@ BeanFactory 按需查询时，只会创建选定的候选；当前 ApplicationCo
 | 2026-08-01 | v0.6.0 第一课：将组件类 `@Primary` 自动映射到 BeanDefinition 元数据 |
 | 2026-08-01 | v0.6.0 第二课：定义 `@Qualifier` 字段与构造器参数注入点契约 |
 | 2026-08-01 | v0.6.0 第三课：实现字段 `@Qualifier` 精确选择并覆盖 primary 默认候选 |
+| 2026-08-02 | v0.6.0 第四课：实现构造器参数 `@Qualifier` 精确选择并保持参数顺序 |
 
 ## 开发约定
 

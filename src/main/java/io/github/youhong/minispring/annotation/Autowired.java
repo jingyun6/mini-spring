@@ -26,10 +26,10 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>字段未标注 {@link Qualifier @Qualifier} 时按类型解析，标注后按指定 Bean 名称
- * 精确解析；显式 qualifier 优先于 primary 默认候选。构造器参数目前仍按类型解析。
- * 两条路径最终都复用 BeanFactory 的创建、单例缓存和循环依赖检测；同时仍不支持
- * 方法注入，也尚未通过早期 Bean 引用解决循环依赖。</p>
+ * <p>字段和构造器参数未标注 {@link Qualifier @Qualifier} 时按类型解析，标注后按指定
+ * Bean 名称精确解析；显式 qualifier 优先于 primary 默认候选。两类注入点最终都复用
+ * BeanFactory 的创建、单例缓存和循环依赖检测；同时仍不支持方法注入，也尚未通过
+ * 早期 Bean 引用解决循环依赖。</p>
  *
  * @author YouHong
  * @see Component

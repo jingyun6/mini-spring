@@ -34,8 +34,8 @@ import java.util.Set;
  *
  * <p><b>当前限制：</b>容器支持基于类型的 {@code @Autowired} 字段注入、唯一构造器的
  * 隐式注入、多构造器中的显式选择，以及组件类 {@code @Primary} 到
- * BeanDefinition 元数据的自动映射。字段注入点已支持通过 {@code @Qualifier}
- * 按 Bean 名称精确选择候选，构造器参数尚未接入该规则；
+ * BeanDefinition 元数据的自动映射。字段和构造器参数均支持通过 {@code @Qualifier}
+ * 按 Bean 名称精确选择候选，并使该显式选择优先于 primary 默认候选；
  * 循环依赖能够被检测并拒绝，但尚不能通过早期 Bean 引用解决。
  *
  * @author YouHong5286

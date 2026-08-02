@@ -12,11 +12,14 @@
 - 2 个 `@Qualifier` 注解契约测试，自动化测试总数增加到 41 个
 - 字段 `@Qualifier` 按 Bean 名称精确选择候选，并优先于 primary 默认候选
 - 2 个字段 qualifier 选择与 primary 回归测试，自动化测试总数增加到 43 个
+- 构造器参数 `@Qualifier` 按 Bean 名称精确选择候选，并优先于 primary 默认候选
+- 2 个构造器参数 qualifier 选择与 primary 回归测试，自动化测试总数增加到 45 个
 
 ### Changed
 
 - ApplicationContext 负责把组件类注解翻译为结构化元数据，BeanFactory 保持与注解来源解耦
 - 字段遍历与字段依赖解析分离；有 qualifier 时按名称获取，否则按类型选择
+- 构造器参数遍历与单参数依赖解析分离，并通过 `Parameter` 保留注解元数据和参数顺序
 
 ### Documentation
 
@@ -24,10 +27,11 @@
 - 同步 v0.6.0 第一课的 primary 扫描映射、集成链路和测试进度
 - 同步 v0.6.0 第二课的 qualifier 注入点契约和测试进度
 - 同步 v0.6.0 第三课的字段 qualifier 精确选择、职责边界和测试进度
+- 同步 v0.6.0 第四课的构造器参数 qualifier 精确选择和测试进度
 
 ### Known limitations
 
-- 字段已支持 `@Qualifier` 精确选择，构造器参数尚未接入该规则
+- 字段和构造器参数的 qualifier/type 解析分支尚未统一为同一套依赖描述和解析入口
 
 ## [0.5.0] - 2026-08-01
 

@@ -2,13 +2,18 @@ package io.github.youhong.minispring.beans;
 
 import io.github.youhong.minispring.annotation.Autowired;
 import io.github.youhong.minispring.annotation.Qualifier;
-import io.github.youhong.minispring.exception.*;
+import io.github.youhong.minispring.exception.BeanCreationException;
+import io.github.youhong.minispring.exception.BeanDefinitionNotFoundException;
+import io.github.youhong.minispring.exception.BeansException;
+import io.github.youhong.minispring.exception.NoSuchBeanDefinitionException;
+import io.github.youhong.minispring.exception.NoUniqueBeanDefinitionException;
 import io.github.youhong.minispring.factory.DefaultSingletonBeanRegistry;
 import io.github.youhong.minispring.utils.Assert;
 import io.github.youhong.minispring.utils.StringUtils;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Parameter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -591,8 +596,9 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
     /**
      * 按声明顺序解析所选构造器的全部参数。
      *
-     * <p>每个参数统一委托给 {@link #getBean(Class)}，从而复用按类型候选选择、单例缓存、
-     * 异常体系和当前线程的循环依赖检测。</p>
+     * <p>使用 {@link Parameter} 保留每个形参的类型和注解元数据，并按声明索引依次委托
+     * {@link #resolveConstructorParameterDependency(Parameter)} 解析。解析完成的实参数组
+     * 与构造器形参保持一一对应。</p>
      *
      * @param constructor 已经唯一选定的构造器
      * @return 与构造器形参按顺序一一对应的实参数组
@@ -600,12 +606,33 @@ public class DefaultListableBeanFactory extends DefaultSingletonBeanRegistry imp
      */
     private Object[] resolveConstructorArguments(
             Constructor<?> constructor) {
-        Class<?>[] parameterTypes = constructor.getParameterTypes();
-        Object[] parameters = new Object[parameterTypes.length];
-        for (int i = 0; i < parameterTypes.length; i++) {
-            parameters[i] = getBean(parameterTypes[i]);
+        Parameter[] constructorParameters = constructor.getParameters();
+
+        Object[] arguments = new Object[constructorParameters.length];
+        for (int i = 0; i < constructorParameters.length; i++) {
+            Parameter parameter = constructorParameters[i];
+            arguments[i] = resolveConstructorParameterDependency(parameter);
         }
-        return parameters;
+        return arguments;
+    }
+
+    /**
+     * 根据单个构造器参数的注入点元数据解析依赖实例。
+     *
+     * <p>参数存在 {@link Qualifier @Qualifier} 时，直接委托 {@link #getBean(String)}
+     * 按显式 Bean 名称获取依赖，使 qualifier 优先于 primary；否则委托
+     * {@link #getBean(Class)} 按参数类型应用唯一候选和 primary 选择规则。</p>
+     *
+     * @param parameter 已选定构造器中的一个参数
+     * @return 与该构造器参数匹配的依赖实例
+     * @throws BeansException 如果指定名称不存在，或按类型无法唯一解析和创建依赖
+     */
+    private Object resolveConstructorParameterDependency(Parameter parameter) {
+        Qualifier qualifier = parameter.getAnnotation(Qualifier.class);
+        if (qualifier != null) {
+            return getBean(qualifier.value());
+        }
+        return getBean(parameter.getType());
     }
 
     /**
